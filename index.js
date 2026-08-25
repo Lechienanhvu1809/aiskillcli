@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { program } = require('commander');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 
 // Xác định đường dẫn thư mục lưu trữ toàn cục
 const SKILLS_DIR = path.join(os.homedir(), '.ai-skills');
@@ -56,18 +56,26 @@ program
     console.log(`Đang thiết lập Git Sync với repo: ${url}...`);
     try {
       if (!fs.existsSync(path.join(SKILLS_DIR, '.git'))) {
-        execSync('git init', { cwd: SKILLS_DIR, stdio: 'ignore' });
+        execFileSync('git', ['init'], { cwd: SKILLS_DIR, stdio: 'ignore' });
         // Khởi tạo một commit rỗng nếu repo chưa có commit nào
         try {
-          execSync('git commit --allow-empty -m "Initial commit"', { cwd: SKILLS_DIR, stdio: 'ignore' });
+          execFileSync('git', ['commit', '--allow-empty', '-m', 'Initial commit'], { cwd: SKILLS_DIR, stdio: 'ignore' });
         } catch (e) {}
       }
       try {
-        execSync(`git remote add origin ${url}`, { cwd: SKILLS_DIR, stdio: 'ignore' });
+        execFileSync('git', ['remote', 'set-url', 'origin', url], { cwd: SKILLS_DIR, stdio: 'ignore' });
       } catch (e) {
-        // Bỏ qua nếu origin đã tồn tại
+        try {
+          execFileSync('git', ['remote', 'add', 'origin', url], { cwd: SKILLS_DIR, stdio: 'ignore' });
+        } catch (e2) {}
       }
-      execSync('git branch -M main', { cwd: SKILLS_DIR, stdio: 'ignore' });
+      execFileSync('git', ['branch', '-M', 'main'], { cwd: SKILLS_DIR, stdio: 'ignore' });
+      
+      try {
+        execFileSync('git', ['push', '-u', 'origin', 'main'], { cwd: SKILLS_DIR, stdio: 'ignore' });
+      } catch (e) {
+        console.log('⚠️ Lưu ý: Chưa thể đẩy (push) lên GitHub ngay lập tức. Hãy chắc chắn bạn ĐÃ TẠO repo trống trên GitHub.');
+      }
       console.log('🎉 Thiết lập Git Sync thành công! Từ giờ mọi thay đổi sẽ tự động đồng bộ ngầm.');
     } catch (e) {
       console.error('❌ Lỗi khi thiết lập Git:', e.message);
