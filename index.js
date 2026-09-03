@@ -242,15 +242,22 @@ program
     
     const content = fs.readFileSync(skillPath, 'utf8');
     
-    // Tìm đoạn mã: ```bash hook hoặc ```bash pre-hook hoặc ```bash
-    const regex = /```bash[^\n]*\n([\s\S]*?)```/;
+    // Tìm đoạn mã: ```bash hook hoặc ```bash pre-hook
+    const regex = /```bash\s+(?:hook|pre-hook)[^\n]*\n([\s\S]*?)```/;
     const match = content.match(regex);
     
     if (match && match[1]) {
-      const scriptContent = match[1].trim();
+      let scriptContent = match[1].trim();
       console.log(`🚀 Đang thực thi đoạn mã từ kỹ năng "${cleanName}"...\n`);
       try {
         const { execSync } = require('child_process');
+        
+        // Trên Windows, cmd.exe (shell mặc định của execSync) không hiểu '#' là comment.
+        // Ta cần loại bỏ các dòng bắt đầu bằng '#' trước khi thực thi để tránh lỗi.
+        if (os.platform() === 'win32') {
+          scriptContent = scriptContent.split('\n').filter(line => !line.trim().startsWith('#')).join('\n');
+        }
+
         // Chạy đoạn mã qua môi trường shell
         const output = execSync(scriptContent, { encoding: 'utf8', stdio: 'pipe' });
         console.log(output);
