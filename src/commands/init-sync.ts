@@ -1,8 +1,8 @@
-import { type CliContext } from "../context.js";
+import type { CliContext } from "../context.js";
 import { initSync } from "../policies/git-sync.js";
-import { success, warn, info } from "../utils/output.js";
+import { info, success, warn } from "../utils/output.js";
 
-export async function runInitSync(ctx: CliContext, url: string): Promise<void> {
+export function runInitSync(ctx: CliContext, url: string): void {
   info(`Đang thiết lập Git Sync với repo: ${url}...`);
   const result = initSync(ctx, url);
   if (result.ok) {

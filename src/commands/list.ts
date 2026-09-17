@@ -1,6 +1,6 @@
-import { type CliContext } from "../context.js";
-import { listSkills } from "../policies/skill-registry.js";
+import type { CliContext } from "../context.js";
 import { syncPull } from "../policies/git-sync.js";
+import { listSkills } from "../policies/skill-registry.js";
 import { c } from "../utils/output.js";
 
 export function runList(ctx: CliContext): void {
@@ -8,7 +8,7 @@ export function runList(ctx: CliContext): void {
   const skills = listSkills(ctx);
   if (skills.length === 0) {
     console.log(
-      c.dim('Kho kỹ năng đang trống. Thêm kỹ năng bằng: ai-skills add <tên> <đường_dẫn_file>'),
+      c.dim("Kho kỹ năng đang trống. Thêm kỹ năng bằng: ai-skills add <tên> <đường_dẫn_file>"),
     );
     return;
   }

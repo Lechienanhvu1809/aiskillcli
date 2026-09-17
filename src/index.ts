@@ -1,13 +1,19 @@
 import { program } from "commander";
-import { createCliContext } from "./context.js";
-import { runList } from "./commands/list.js";
-import { runGet } from "./commands/get.js";
-import { runSearch } from "./commands/search.js";
 import { runAdd } from "./commands/add.js";
-import { runRemove } from "./commands/remove.js";
 import { runApply } from "./commands/apply.js";
-import { runRun } from "./commands/run.js";
+import { type CreateOptions, runCreate } from "./commands/create.js";
+import { type FetchOptions, runFetch } from "./commands/fetch.js";
+import { runGet } from "./commands/get.js";
 import { runInitSync } from "./commands/init-sync.js";
+import { runList } from "./commands/list.js";
+import { type RecommendOptions, runRecommend } from "./commands/recommend.js";
+import { runRemove } from "./commands/remove.js";
+import { runRun } from "./commands/run.js";
+import { runSearch, type SearchOptions } from "./commands/search.js";
+import { runStats } from "./commands/stats.js";
+import { runTag } from "./commands/tag.js";
+import { runUpdate } from "./commands/update.js";
+import { createCliContext } from "./context.js";
 
 const ctx = createCliContext();
 
@@ -35,7 +41,8 @@ program
   .command("add <name> <file_path>")
   .description("Thêm một kỹ năng mới từ file Markdown có sẵn")
   .option("--force", "Ghi đè nếu skill đã tồn tại")
-  .action((name: string, filePath: string, opts: { force?: boolean }) =>
+  .option("--tags <tags...>", "Danh sách tags (cách nhau bởi dấu cách)")
+  .action((name: string, filePath: string, opts: { force?: boolean; tags?: string[] }) =>
     runAdd(ctx, name, filePath, opts),
   );
 
@@ -48,7 +55,9 @@ program
 program
   .command("search <keyword>")
   .description("Tìm kiếm kỹ năng theo tên hoặc nội dung")
-  .action((keyword: string) => runSearch(ctx, keyword));
+  .option("-s, --semantic", "Tìm kiếm thông minh với TF-IDF + fuzzy matching")
+  .option("--tag <tag>", "Lọc kết quả theo tag")
+  .action((keyword: string, opts: SearchOptions) => runSearch(ctx, keyword, opts));
 
 program
   .command("apply <name>")
@@ -59,5 +68,62 @@ program
   .command("run <name>")
   .description("Thực thi các khối mã (script/hook) bên trong file Markdown của kỹ năng")
   .action((name: string) => runRun(ctx, name));
+
+program
+  .command("create [name]")
+  .description("Tạo kỹ năng mới từ template có sẵn")
+  .option("-t, --template <id>", "Chọn template (mặc định: basic)")
+  .option("-d, --description <text>", "Mô tả ngắn cho kỹ năng")
+  .option("--tags <tags...>", "Danh sách tags (cách nhau bởi dấu cách)")
+  .option("--force", "Ghi đè nếu skill đã tồn tại")
+  .option("--list-templates", "Liệt kê các template có sẵn")
+  .action((name: string | undefined, opts: CreateOptions) => runCreate(ctx, name, opts));
+
+program
+  .command("recommend")
+  .description("Phân tích dự án và gợi ý kỹ năng phù hợp")
+  .option("--dir <path>", "Thư mục dự án cần phân tích (mặc định: thư mục hiện tại)")
+  .action((opts: RecommendOptions) => runRecommend(ctx, opts));
+
+program
+  .command("update")
+  .description("Cập nhật kho kỹ năng từ Cloud (Git Pull)")
+  .action(() => runUpdate(ctx));
+
+program
+  .command("stats")
+  .description("Xem thống kê kho kỹ năng và tags")
+  .action(() => runStats(ctx));
+
+program
+  .command("fetch [name]")
+  .description("Tải skill từ autoskills registry về kho local")
+  .option("--from <bundle>", "Tải toàn bộ skills từ một bundle (vd: wshobson/agents)")
+  .option("--auto", "Tự động detect tech stack và fetch skills phù hợp")
+  .option("--force", "Ghi đè skill đã tồn tại")
+  .option("--list", "Chỉ hiển thị danh sách skills có sẵn, không tải")
+  .action((name: string | undefined, opts: FetchOptions) => runFetch(ctx, name, opts));
+
+program
+  .command("tag <action> [args...]")
+  .description("Quản lý tags của skills (add | remove | list | rename)")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "  Actions:",
+      "    add <skill> <tag...>       Thêm tags vào skill",
+      "    remove <skill> <tag>       Xóa tag khỏi skill",
+      "    list                       Liệt kê tất cả tags",
+      "    rename <old-tag> <new-tag> Đổi tên tag trên toàn bộ kho",
+      "",
+      "  Ví dụ:",
+      "    ai-skills tag add my-skill frontend web",
+      "    ai-skills tag remove my-skill web",
+      "    ai-skills tag list",
+      "    ai-skills tag rename frontend ui",
+    ].join("\n"),
+  )
+  .action((action: string, args: string[]) => runTag(ctx, action, args));
 
 program.parse();

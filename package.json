@@ -2,6 +2,14 @@
   "name": "ai-skill-cli",
   "version": "1.0.0",
   "description": "Local AI Skill Registry CLI — quản lý kho kỹ năng cho AI agent",
+  "homepage": "https://github.com/your-org/ai-skill-cli#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/ai-skill-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/ai-skill-cli/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -12,6 +20,7 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/"
@@ -20,7 +29,6 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@clack/prompts": "^0.10.0",
     "commander": "^15.0.0",
     "picocolors": "^1.1.1"
   },

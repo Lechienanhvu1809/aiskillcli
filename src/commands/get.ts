@@ -1,7 +1,7 @@
-import { type CliContext } from "../context.js";
-import { getSkill } from "../policies/skill-registry.js";
+import type { CliContext } from "../context.js";
 import { syncPull } from "../policies/git-sync.js";
 import { validateSkillName } from "../policies/name-validation.js";
+import { getSkill } from "../policies/skill-registry.js";
 import { handleError } from "../utils/output.js";
 
 export function runGet(ctx: CliContext, rawName: string): void {

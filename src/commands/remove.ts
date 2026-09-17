@@ -1,7 +1,7 @@
-import { type CliContext } from "../context.js";
-import { removeSkill } from "../policies/skill-registry.js";
+import type { CliContext } from "../context.js";
 import { syncPush } from "../policies/git-sync.js";
 import { validateSkillName } from "../policies/name-validation.js";
+import { removeSkill } from "../policies/skill-registry.js";
 import { handleError, success } from "../utils/output.js";
 
 export function runRemove(ctx: CliContext, rawName: string): void {

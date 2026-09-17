@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { validateSkillName, SkillValidationError } from "../../src/policies/name-validation.js";
+import { describe, expect, it } from "vitest";
+import { SkillValidationError, validateSkillName } from "../../src/policies/name-validation.js";
 
 describe("validateSkillName", () => {
   // --- Happy path ---

@@ -1,16 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { type CliContext } from "../../src/context.js";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { CliContext } from "../../src/context.js";
 import {
-  listSkills,
   addSkill,
-  removeSkill,
   getSkill,
+  listSkills,
+  removeSkill,
+  SkillRegistryError,
   searchSkills,
   skillExists,
-  SkillRegistryError,
 } from "../../src/policies/skill-registry.js";
 
 // Dùng temp directory thật để test I/O thực sự

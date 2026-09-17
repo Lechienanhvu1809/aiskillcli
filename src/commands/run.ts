@@ -1,11 +1,11 @@
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
 import { execSync } from "node:child_process";
-import { type CliContext } from "../context.js";
-import { skillPath } from "../policies/skill-registry.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { CliContext } from "../context.js";
 import { validateSkillName } from "../policies/name-validation.js";
-import { handleError, warn, info } from "../utils/output.js";
+import { skillPath } from "../policies/skill-registry.js";
+import { handleError, info, warn } from "../utils/output.js";
 
 /**
  * Policy: Trích xuất và chạy bash script từ nội dung Markdown.

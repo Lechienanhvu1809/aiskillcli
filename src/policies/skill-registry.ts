@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { type CliContext } from "../context.js";
+import type { CliContext } from "../context.js";
+import { injectTags, parseFrontmatter } from "../utils/frontmatter.js";
+import { type ScoredResult, searchWithTfIdf } from "./text-search.js";
 
 /**
  * Business Rule: CRUD operations cho skill registry.
@@ -71,7 +73,7 @@ export function addSkill(
   ctx: CliContext,
   name: string,
   sourcePath: string,
-  opts: { overwrite?: boolean } = {},
+  opts: { overwrite?: boolean; tags?: string[] } = {},
 ): void {
   ensureSkillsDir(ctx);
   const absoluteSource = path.resolve(process.cwd(), sourcePath);
@@ -89,7 +91,13 @@ export function addSkill(
     );
   }
   try {
-    fs.copyFileSync(absoluteSource, dest);
+    if (opts.tags && opts.tags.length > 0) {
+      const content = fs.readFileSync(absoluteSource, "utf8");
+      const updatedContent = injectTags(content, opts.tags);
+      fs.writeFileSync(dest, updatedContent, "utf8");
+    } else {
+      fs.copyFileSync(absoluteSource, dest);
+    }
   } catch (err) {
     throw new SkillRegistryError(
       `Lỗi khi sao chép file: ${err instanceof Error ? err.message : String(err)}`,
@@ -115,14 +123,22 @@ export function removeSkill(ctx: CliContext, name: string): void {
 }
 
 /** Tìm kiếm skills theo từ khóa */
-export function searchSkills(ctx: CliContext, keyword: string): SearchResult[] {
+export function searchSkills(ctx: CliContext, keyword: string, tag?: string): SearchResult[] {
   ensureSkillsDir(ctx);
   const lowerKw = keyword.toLowerCase();
+  const lowerTag = tag?.toLowerCase();
   const files = fs.readdirSync(ctx.skillsDir).filter((f) => f.endsWith(".md"));
   const results: SearchResult[] = [];
   for (const file of files) {
     const name = file.replace(/\.md$/, "");
     const content = fs.readFileSync(path.join(ctx.skillsDir, file), "utf8");
+
+    if (lowerTag) {
+      const frontmatter = parseFrontmatter(content);
+      const tags = (frontmatter.tags ?? []).map((t) => t.toLowerCase());
+      if (!tags.includes(lowerTag)) continue;
+    }
+
     const matchedInName = name.toLowerCase().includes(lowerKw);
     const matchedInContent = content.toLowerCase().includes(lowerKw);
     if (matchedInName || matchedInContent) {
@@ -130,4 +146,25 @@ export function searchSkills(ctx: CliContext, keyword: string): SearchResult[] {
     }
   }
   return results;
+}
+
+/** Tìm kiếm thông minh với TF-IDF + fuzzy matching */
+export function searchSkillsSemantic(ctx: CliContext, query: string, tag?: string): ScoredResult[] {
+  ensureSkillsDir(ctx);
+  const lowerTag = tag?.toLowerCase();
+  const files = fs.readdirSync(ctx.skillsDir).filter((f) => f.endsWith(".md"));
+  const docs = new Map<string, string>();
+  for (const file of files) {
+    const name = file.replace(/\.md$/, "");
+    const content = fs.readFileSync(path.join(ctx.skillsDir, file), "utf8");
+
+    if (lowerTag) {
+      const frontmatter = parseFrontmatter(content);
+      const tags = (frontmatter.tags ?? []).map((t) => t.toLowerCase());
+      if (!tags.includes(lowerTag)) continue;
+    }
+
+    docs.set(name, content);
+  }
+  return searchWithTfIdf(docs, query);
 }

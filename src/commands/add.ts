@@ -1,14 +1,14 @@
-import { type CliContext } from "../context.js";
-import { addSkill, skillExists } from "../policies/skill-registry.js";
+import type { CliContext } from "../context.js";
 import { syncPush } from "../policies/git-sync.js";
 import { validateSkillName } from "../policies/name-validation.js";
+import { addSkill, skillExists } from "../policies/skill-registry.js";
 import { handleError, success, warn } from "../utils/output.js";
 
 export function runAdd(
   ctx: CliContext,
   rawName: string,
   filePath: string,
-  opts: { force?: boolean },
+  opts: { force?: boolean; tags?: string[] },
 ): void {
   try {
     const name = validateSkillName(rawName);
@@ -22,7 +22,7 @@ export function runAdd(
       warn(`Đang ghi đè skill "${name}"...`);
     }
 
-    addSkill(ctx, name, filePath, { overwrite: opts.force });
+    addSkill(ctx, name, filePath, { overwrite: opts.force, tags: opts.tags });
     success(`Đã thêm kỹ năng "${name}" vào kho lưu trữ!`);
     syncPush(ctx, `Auto-sync: Add skill ${name}`);
   } catch (err) {

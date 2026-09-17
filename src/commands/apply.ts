@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import { type CliContext } from "../context.js";
-import { skillPath } from "../policies/skill-registry.js";
+import type { CliContext } from "../context.js";
 import { validateSkillName } from "../policies/name-validation.js";
-import { handleError, success, info } from "../utils/output.js";
+import { skillPath } from "../policies/skill-registry.js";
+import { handleError, info, success } from "../utils/output.js";
 
 export function runApply(ctx: CliContext, rawName: string): void {
   try {
