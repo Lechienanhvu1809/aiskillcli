@@ -119,21 +119,29 @@ export function addSkill(
     );
   }
   const dest = skillPath(ctx, name);
-  if (fs.existsSync(dest) && !opts.overwrite) {
-    throw new SkillRegistryError(
-      `Skill "${name}" đã tồn tại. Dùng --force để ghi đè.`,
-      "ALREADY_EXISTS",
-    );
-  }
+
   try {
     if (opts.tags && opts.tags.length > 0) {
+      if (fs.existsSync(dest) && !opts.overwrite) {
+        throw new SkillRegistryError(
+          `Skill "${name}" đã tồn tại. Dùng --force để ghi đè.`,
+          "ALREADY_EXISTS",
+        );
+      }
       const content = fs.readFileSync(absoluteSource, "utf8");
       const updatedContent = injectTags(content, opts.tags);
       fs.writeFileSync(dest, updatedContent, "utf8");
     } else {
-      fs.copyFileSync(absoluteSource, dest);
+      const flags = opts.overwrite ? 0 : fs.constants.COPYFILE_EXCL;
+      fs.copyFileSync(absoluteSource, dest, flags);
     }
-  } catch (err) {
+  } catch (err: any) {
+    if (err.code === "EEXIST") {
+      throw new SkillRegistryError(
+        `Skill "${name}" đã tồn tại. Dùng --force để ghi đè.`,
+        "ALREADY_EXISTS",
+      );
+    }
     throw new SkillRegistryError(
       `Lỗi khi sao chép file: ${err instanceof Error ? err.message : String(err)}`,
       "IO_ERROR",

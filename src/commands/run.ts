@@ -1,24 +1,13 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import * as p from "@clack/prompts";
 import type { CliContext } from "../context.js";
+import { extractBashHook } from "../policies/bash-hook.js";
 import { validateSkillName } from "../policies/name-validation.js";
 import { skillPath } from "../policies/skill-registry.js";
 import { handleError, info, warn } from "../utils/output.js";
-
-/**
- * Policy: Trích xuất và chạy bash script từ nội dung Markdown.
- *
- * ⚠️ BẢO MẬT: Lệnh này thực thi code tùy ý từ file Markdown.
- * Chỉ chạy các skill từ nguồn đáng tin cậy.
- * Trong tương lai nên sandbox bằng Docker hoặc deno.
- */
-function extractBashHook(content: string): string | null {
-  const regex = /```bash\s+(?:hook|pre-hook)[^\n]*\n([\s\S]*?)```/;
-  const match = content.match(regex);
-  return match?.[1]?.trim() ?? null;
-}
 
 export async function runRun(ctx: CliContext, rawName: string, options: { yes?: boolean } = {}): Promise<void> {
   try {
@@ -62,7 +51,20 @@ export async function runRun(ctx: CliContext, rawName: string, options: { yes?: 
       }
     }
 
-    execSync(scriptContent, { stdio: "inherit" });
+    const execOptions: import("node:child_process").ExecSyncOptions = { stdio: "inherit" };
+    if (os.platform() === "win32") {
+      execOptions.shell = "bash";
+    }
+
+    try {
+      execSync(scriptContent, execOptions);
+    } catch (e: any) {
+      if (os.platform() === "win32" && e.message && e.message.includes("ENOENT")) {
+        handleError(new Error("Không tìm thấy 'bash' trên Windows. Hãy chắc chắn bạn đã cài Git Bash hoặc WSL và đưa vào PATH."));
+      } else {
+        throw e;
+      }
+    }
   } catch (err: any) {
     handleError(err);
   }

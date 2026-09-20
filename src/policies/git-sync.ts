@@ -40,7 +40,7 @@ export function syncPull(ctx: CliContext): boolean {
 
 /** Commit và push sau khi ghi */
 export function syncPush(ctx: CliContext, message: string): boolean {
-  const added = runGit(ctx, ["add", "."]);
+  const added = runGit(ctx, ["add", "*.md"]);
   const committed = runGit(ctx, ["commit", "-m", message]);
   const pushed = runGit(ctx, ["push", "origin", "main"]);
   return added && committed && pushed;

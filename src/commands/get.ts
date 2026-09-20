@@ -4,10 +4,12 @@ import { validateSkillName } from "../policies/name-validation.js";
 import { getSkill } from "../policies/skill-registry.js";
 import { handleError } from "../utils/output.js";
 
-export function runGet(ctx: CliContext, rawName: string): void {
+export function runGet(ctx: CliContext, rawName: string, options: { noSync?: boolean } = {}): void {
   try {
     const name = validateSkillName(rawName);
-    syncPull(ctx);
+    if (!options.noSync) {
+      syncPull(ctx);
+    }
     const content = getSkill(ctx, name);
     console.log(content);
   } catch (err) {

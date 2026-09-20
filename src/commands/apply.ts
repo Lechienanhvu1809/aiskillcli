@@ -19,28 +19,24 @@ export function runApply(ctx: CliContext, rawName: string): void {
 
     fs.mkdirSync(targetDir, { recursive: true });
 
-    // Xóa file cũ để tránh conflict
-    if (fs.existsSync(targetPath)) {
-      fs.unlinkSync(targetPath);
-    }
+    // Xóa file cũ (force: true xóa được cả symlink treo)
+    fs.rmSync(targetPath, { force: true });
 
-    // Ưu tiên Symlink → Hardlink → Copy (theo thứ tự ưu tiên)
+    // Ưu tiên Symlink → Copy (Hardlink dễ gãy khi git pull thay inode)
     let method = "Copy";
     try {
       fs.symlinkSync(sourcePath, targetPath, "file");
       method = "Symlink";
     } catch {
-      try {
-        fs.linkSync(sourcePath, targetPath);
-        method = "Hardlink";
-      } catch {
-        fs.copyFileSync(sourcePath, targetPath);
-        method = "Copy";
-      }
+      fs.copyFileSync(sourcePath, targetPath);
+      method = "Copy";
     }
 
     success(`Đã apply kỹ năng "${name}" vào dự án! (phương thức: ${method})`);
-    info(`Đường dẫn: ${targetPath}`);
+    if (method === "Copy") {
+      info("Lưu ý: Bạn đang dùng Copy, file này sẽ không tự cập nhật khi kho tổng thay đổi. Cần apply lại nếu muốn cập nhật.");
+    }
+    info(`Đường dẫn: .agents/skills/${name}/SKILL.md`);
   } catch (err) {
     handleError(err);
   }

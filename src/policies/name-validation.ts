@@ -16,6 +16,8 @@ export class SkillValidationError extends Error {
 const MAX_SKILL_NAME_LENGTH = 100;
 // Chỉ cho phép: chữ cái, số, gạch ngang, gạch dưới
 const VALID_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
+// Các tên bị cấm trên Windows
+const WINDOWS_RESERVED_NAMES = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
 
 /**
  * Validate và normalize tên skill.
@@ -39,32 +41,31 @@ export function validateSkillName(rawName: string): string {
     );
   }
 
-  // Reject path traversal bằng cách kiểm tra basename
-  const basename = path.basename(withoutExt);
-  if (basename !== withoutExt) {
+  // Reject tên bị cấm trên Windows
+  if (WINDOWS_RESERVED_NAMES.test(withoutExt)) {
     throw new SkillValidationError(
-      `Tên skill không hợp lệ (phát hiện path traversal): "${rawName}"`,
+      `Tên skill "${rawName}" trùng với từ khóa hệ thống bị cấm trên Windows.`,
     );
   }
 
   // Reject tên quá ngắn
-  if (basename.length === 0) {
+  if (withoutExt.length === 0) {
     throw new SkillValidationError("Tên skill không được để trống sau khi xử lý.");
   }
 
   // Reject tên quá dài
-  if (basename.length > MAX_SKILL_NAME_LENGTH) {
+  if (withoutExt.length > MAX_SKILL_NAME_LENGTH) {
     throw new SkillValidationError(
-      `Tên skill quá dài (tối đa ${MAX_SKILL_NAME_LENGTH} ký tự). Nhận được: ${basename.length} ký tự.`,
+      `Tên skill quá dài (tối đa ${MAX_SKILL_NAME_LENGTH} ký tự). Nhận được: ${withoutExt.length} ký tự.`,
     );
   }
 
-  // Reject ký tự đặc biệt — chỉ cho phép alphanumeric, gạch ngang, gạch dưới
-  if (!VALID_NAME_PATTERN.test(basename)) {
+  // Reject ký tự đặc biệt
+  if (!VALID_NAME_PATTERN.test(withoutExt)) {
     throw new SkillValidationError(
-      `Tên skill chỉ được chứa chữ cái (a-z, A-Z), số (0-9), gạch ngang (-), gạch dưới (_). Nhận được: "${basename}"`,
+      `Tên skill chỉ được chứa chữ cái, số, gạch ngang (-) và gạch dưới (_). Nhận được: "${withoutExt}"`,
     );
   }
 
-  return basename;
+  return withoutExt;
 }

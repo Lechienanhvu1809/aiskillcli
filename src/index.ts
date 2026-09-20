@@ -40,7 +40,8 @@ program
 program
   .command("get <name>")
   .description("Đọc và in ra nội dung của một kỹ năng cụ thể")
-  .action((name: string) => runGet(ctx, name));
+  .option("--no-sync", "Bỏ qua việc đồng bộ git tự động")
+  .action((name: string, opts: { sync?: boolean }) => runGet(ctx, name, { noSync: !opts.sync }));
 
 program
   .command("add <name> <file_path>")
