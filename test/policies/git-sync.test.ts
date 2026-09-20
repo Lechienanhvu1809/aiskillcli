@@ -23,7 +23,8 @@ describe("Git Sync Policy", () => {
   beforeEach(() => {
     ctx = {
       skillsDir: "/mock/skills/dir",
-      registryUrl: "https://github.com/mock/repo.git",
+      projectDir: "/mock/project",
+      verbose: false,
     };
     vi.clearAllMocks();
   });
