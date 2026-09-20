@@ -1,4 +1,5 @@
-import { C as syncPush, S as syncPull, _ as injectTags, a as ensureSkillsDir, b as renameTag, c as listSkills, d as searchSkills, f as searchSkillsSemantic, g as getTags, i as addSkill, l as removeSkill, m as skillPath, n as createCliContext, o as getSkill, p as skillExists, r as analyzeProject, t as CLI_VERSION, v as parseFrontmatter, x as initSync, y as removeTag } from "./version-BbsC1INe.js";
+#!/usr/bin/env node
+import { C as syncPush, S as syncPull, _ as injectTags, a as ensureSkillsDir, b as renameTag, c as listSkills, d as searchSkills, f as searchSkillsSemantic, g as getTags, i as addSkill, l as removeSkill, m as skillPath, n as createCliContext, o as getSkill, p as skillExists, r as analyzeProject, t as CLI_VERSION, v as parseFrontmatter, x as initSync, y as removeTag } from "./version-CSDx9kj_.js";
 import { program } from "commander";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
@@ -6,6 +7,7 @@ import path from "node:path";
 import pc from "picocolors";
 import crypto from "node:crypto";
 import os from "node:os";
+import * as p from "@clack/prompts";
 //#region src/policies/name-validation.ts
 /**
 * Business Rule: Validate và sanitize tên skill.
@@ -908,7 +910,7 @@ function runRemove(ctx, rawName) {
 function extractBashHook(content) {
 	return content.match(/```bash\s+(?:hook|pre-hook)[^\n]*\n([\s\S]*?)```/)?.[1]?.trim() ?? null;
 }
-function runRun(ctx, rawName) {
+async function runRun(ctx, rawName, options = {}) {
 	try {
 		const name = validateSkillName(rawName);
 		let skillFilePath = path.join(process.cwd(), ".agents", "skills", name, "SKILL.md");
@@ -920,22 +922,18 @@ function runRun(ctx, rawName) {
 			return;
 		}
 		warn("Đang thực thi code từ file Markdown. Chỉ chạy các skill từ nguồn đáng tin cậy!");
-		if (os.platform() === "win32") scriptContent = scriptContent.split("\n").filter((line) => !/^\s*#/.test(line)).join("\n");
 		console.log(`\n🚀 Thực thi kỹ năng "${name}":\n`);
 		for (const line of scriptContent.split("\n")) if (line.trim()) console.log(`  │ ${line}`);
 		console.log();
-		const output = execSync(scriptContent, {
-			encoding: "utf8",
-			stdio: "pipe"
-		});
-		console.log(output);
-	} catch (err) {
-		if (err instanceof Error && "stdout" in err) {
-			const execErr = err;
-			if (execErr.stdout) console.log(execErr.stdout);
-			if (execErr.stderr) console.error(execErr.stderr);
-			handleError(/* @__PURE__ */ new Error(`Lỗi khi thực thi: ${err.message}`));
+		if (!options.yes) {
+			const shouldRun = await p.confirm({ message: "Bạn có chắc chắn muốn chạy đoạn mã này không?" });
+			if (p.isCancel(shouldRun) || !shouldRun) {
+				info("Đã hủy thực thi.");
+				return;
+			}
 		}
+		execSync(scriptContent, { stdio: "inherit" });
+	} catch (err) {
 		handleError(err);
 	}
 }
@@ -1172,7 +1170,7 @@ program.command("add <name> <file_path>").description("Thêm một kỹ năng m�
 program.command("remove <name>").alias("rm").description("Xóa một kỹ năng khỏi kho lưu trữ").action((name) => runRemove(ctx, name));
 program.command("search <keyword>").description("Tìm kiếm kỹ năng theo tên hoặc nội dung").option("-s, --semantic", "Tìm kiếm thông minh với TF-IDF + fuzzy matching").option("--tag <tag>", "Lọc kết quả theo tag").action((keyword, opts) => runSearch(ctx, keyword, opts));
 program.command("apply <name>").description("Bơm kỹ năng từ kho tổng vào dự án hiện tại (tạo Symlink)").action((name) => runApply(ctx, name));
-program.command("run <name>").description("Thực thi các khối mã (script/hook) bên trong file Markdown của kỹ năng").action((name) => runRun(ctx, name));
+program.command("run <name>").description("Thực thi các khối mã (script/hook) bên trong file Markdown của kỹ năng").option("-y, --yes", "Bỏ qua xác nhận (dùng cho automation)").action((name, opts) => runRun(ctx, name, opts));
 program.command("create [name]").description("Tạo kỹ năng mới từ template có sẵn").option("-t, --template <id>", "Chọn template (mặc định: basic)").option("-d, --description <text>", "Mô tả ngắn cho kỹ năng").option("--tags <tags...>", "Danh sách tags (cách nhau bởi dấu cách)").option("--force", "Ghi đè nếu skill đã tồn tại").option("--list-templates", "Liệt kê các template có sẵn").action((name, opts) => runCreate(ctx, name, opts));
 program.command("recommend").description("Phân tích dự án và gợi ý kỹ năng phù hợp").option("--dir <path>", "Thư mục dự án cần phân tích (mặc định: thư mục hiện tại)").action((opts) => runRecommend(ctx, opts));
 program.command("update").description("Cập nhật kho kỹ năng từ Cloud (Git Pull)").action(() => runUpdate(ctx));

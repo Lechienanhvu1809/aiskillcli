@@ -1,7 +1,7 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import * as p from "@clack/prompts";
 import type { CliContext } from "../context.js";
 import { validateSkillName } from "../policies/name-validation.js";
 import { skillPath } from "../policies/skill-registry.js";
@@ -20,7 +20,7 @@ function extractBashHook(content: string): string | null {
   return match?.[1]?.trim() ?? null;
 }
 
-export function runRun(ctx: CliContext, rawName: string): void {
+export async function runRun(ctx: CliContext, rawName: string, options: { yes?: boolean } = {}): Promise<void> {
   try {
     const name = validateSkillName(rawName);
 
@@ -45,15 +45,6 @@ export function runRun(ctx: CliContext, rawName: string): void {
     // ⚠️ Cảnh báo bảo mật cho người dùng
     warn("Đang thực thi code từ file Markdown. Chỉ chạy các skill từ nguồn đáng tin cậy!");
 
-    // Windows: cmd.exe không hiểu '#' là comment — chỉ filter dòng thuần comment
-    // (dòng mà ký tự không-whitespace đầu tiên là '#'), giữ nguyên '#' trong strings/arguments
-    if (os.platform() === "win32") {
-      scriptContent = scriptContent
-        .split("\n")
-        .filter((line) => !/^\s*#/.test(line))
-        .join("\n");
-    }
-
     // Preview script trước khi chạy
     console.log(`\n🚀 Thực thi kỹ năng "${name}":\n`);
     for (const line of scriptContent.split("\n")) {
@@ -61,15 +52,18 @@ export function runRun(ctx: CliContext, rawName: string): void {
     }
     console.log();
 
-    const output = execSync(scriptContent, { encoding: "utf8", stdio: "pipe" });
-    console.log(output);
-  } catch (err) {
-    if (err instanceof Error && "stdout" in err) {
-      const execErr = err as Error & { stdout?: string; stderr?: string };
-      if (execErr.stdout) console.log(execErr.stdout);
-      if (execErr.stderr) console.error(execErr.stderr);
-      handleError(new Error(`Lỗi khi thực thi: ${err.message}`));
+    if (!options.yes) {
+      const shouldRun = await p.confirm({
+        message: "Bạn có chắc chắn muốn chạy đoạn mã này không?",
+      });
+      if (p.isCancel(shouldRun) || !shouldRun) {
+        info("Đã hủy thực thi.");
+        return;
+      }
     }
+
+    execSync(scriptContent, { stdio: "inherit" });
+  } catch (err: any) {
     handleError(err);
   }
 }

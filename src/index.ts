@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { program } from "commander";
 import { runAdd } from "./commands/add.js";
 import { runApply } from "./commands/apply.js";
@@ -71,7 +72,8 @@ program
 program
   .command("run <name>")
   .description("Thực thi các khối mã (script/hook) bên trong file Markdown của kỹ năng")
-  .action((name: string) => runRun(ctx, name));
+  .option("-y, --yes", "Bỏ qua xác nhận (dùng cho automation)")
+  .action((name: string, opts: { yes?: boolean }) => runRun(ctx, name, opts));
 
 program
   .command("create [name]")
@@ -152,4 +154,7 @@ program
   .option("--diff", "So sánh khác biệt thay vì ghi đè")
   .action((file: string, opts: ImportOptions) => runImport(ctx, file, opts));
 
-program.parse();
+program.parseAsync().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

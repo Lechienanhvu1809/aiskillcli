@@ -17,10 +17,21 @@ function runGit(ctx, args) {
 		if (!isGitRepo(ctx)) return false;
 		execFileSync("git", args, {
 			cwd: ctx.skillsDir,
-			stdio: "ignore"
+			stdio: "ignore",
+			timeout: 15e3,
+			env: {
+				...process.env,
+				GIT_TERMINAL_PROMPT: "0"
+			}
 		});
 		return true;
-	} catch {
+	} catch (err) {
+		if (args.includes("--rebase")) try {
+			execFileSync("git", ["rebase", "--abort"], {
+				cwd: ctx.skillsDir,
+				stdio: "ignore"
+			});
+		} catch {}
 		return false;
 	}
 }
@@ -50,6 +61,7 @@ function syncPush(ctx, message) {
 }
 /** Khởi tạo git repo và link với remote */
 function initSync(ctx, remoteUrl) {
+	const safeUrl = remoteUrl.replace(/https?:\/\/[^@]+@/, "https://***@");
 	try {
 		if (!isGitRepo(ctx)) {
 			execFileSync("git", ["init"], {
@@ -107,16 +119,21 @@ function initSync(ctx, remoteUrl) {
 				"main"
 			], {
 				cwd: ctx.skillsDir,
-				stdio: "ignore"
+				stdio: "ignore",
+				timeout: 15e3,
+				env: {
+					...process.env,
+					GIT_TERMINAL_PROMPT: "0"
+				}
 			});
 			return {
 				ok: true,
-				message: "Thiết lập Git Sync thành công!"
+				message: `Thiết lập Git Sync thành công với remote: ${safeUrl}`
 			};
 		} catch {
 			return {
-				ok: true,
-				message: "Git Sync đã thiết lập cục bộ, nhưng chưa push được. Hãy đảm bảo repo đã được tạo trên GitHub."
+				ok: false,
+				message: `Thiết lập thất bại (push bị từ chối). Repo ${safeUrl} có thể đã chứa dữ liệu, hãy clone thủ công hoặc kiểm tra quyền truy cập.`
 			};
 		}
 	} catch (err) {

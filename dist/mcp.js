@@ -1,4 +1,5 @@
-import { c as listSkills, f as searchSkillsSemantic, h as searchSemantic, n as createCliContext, r as analyzeProject, s as getSkillWithDependencies, t as CLI_VERSION, u as saveSkill } from "./version-BbsC1INe.js";
+#!/usr/bin/env node
+import { c as listSkills, f as searchSkillsSemantic, h as searchSemantic, n as createCliContext, r as analyzeProject, s as getSkillWithDependencies, t as CLI_VERSION, u as saveSkill } from "./version-CSDx9kj_.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";

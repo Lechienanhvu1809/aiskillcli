@@ -16,10 +16,19 @@ function isGitRepo(ctx: CliContext): boolean {
 function runGit(ctx: CliContext, args: string[]): boolean {
   try {
     if (!isGitRepo(ctx)) return false;
-    execFileSync("git", args, { cwd: ctx.skillsDir, stdio: "ignore" });
+    execFileSync("git", args, { 
+      cwd: ctx.skillsDir, 
+      stdio: "ignore",
+      timeout: 15000,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }
+    });
     return true;
-  } catch {
-    // Lỗi git (network, conflict, nothing to commit) → silently ignore
+  } catch (err: any) {
+    if (args.includes("--rebase")) {
+      try {
+        execFileSync("git", ["rebase", "--abort"], { cwd: ctx.skillsDir, stdio: "ignore" });
+      } catch {}
+    }
     return false;
   }
 }
@@ -39,6 +48,7 @@ export function syncPush(ctx: CliContext, message: string): boolean {
 
 /** Khởi tạo git repo và link với remote */
 export function initSync(ctx: CliContext, remoteUrl: string): { ok: boolean; message: string } {
+  const safeUrl = remoteUrl.replace(/https?:\/\/[^@]+@/, "https://***@");
   try {
     if (!isGitRepo(ctx)) {
       execFileSync("git", ["init"], { cwd: ctx.skillsDir, stdio: "ignore" });
@@ -48,11 +58,10 @@ export function initSync(ctx: CliContext, remoteUrl: string): { ok: boolean; mes
           stdio: "ignore",
         });
       } catch {
-        // ignore — repo có thể đã có commit
+        // ignore
       }
     }
 
-    // Set hoặc add remote origin
     try {
       execFileSync("git", ["remote", "set-url", "origin", remoteUrl], {
         cwd: ctx.skillsDir,
@@ -64,9 +73,7 @@ export function initSync(ctx: CliContext, remoteUrl: string): { ok: boolean; mes
           cwd: ctx.skillsDir,
           stdio: "ignore",
         });
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
 
     execFileSync("git", ["branch", "-M", "main"], { cwd: ctx.skillsDir, stdio: "ignore" });
@@ -75,13 +82,14 @@ export function initSync(ctx: CliContext, remoteUrl: string): { ok: boolean; mes
       execFileSync("git", ["push", "-u", "origin", "main"], {
         cwd: ctx.skillsDir,
         stdio: "ignore",
+        timeout: 15000,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }
       });
-      return { ok: true, message: "Thiết lập Git Sync thành công!" };
+      return { ok: true, message: `Thiết lập Git Sync thành công với remote: ${safeUrl}` };
     } catch {
       return {
-        ok: true,
-        message:
-          "Git Sync đã thiết lập cục bộ, nhưng chưa push được. Hãy đảm bảo repo đã được tạo trên GitHub.",
+        ok: false,
+        message: `Thiết lập thất bại (push bị từ chối). Repo ${safeUrl} có thể đã chứa dữ liệu, hãy clone thủ công hoặc kiểm tra quyền truy cập.`,
       };
     }
   } catch (err) {
