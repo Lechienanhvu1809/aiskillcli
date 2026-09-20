@@ -122,15 +122,13 @@ export function addSkill(
 
   try {
     if (opts.tags && opts.tags.length > 0) {
-      if (fs.existsSync(dest) && !opts.overwrite) {
-        throw new SkillRegistryError(
-          `Skill "${name}" đã tồn tại. Dùng --force để ghi đè.`,
-          "ALREADY_EXISTS",
-        );
-      }
       const content = fs.readFileSync(absoluteSource, "utf8");
       const updatedContent = injectTags(content, opts.tags);
-      fs.writeFileSync(dest, updatedContent, "utf8");
+      
+      const flag = opts.overwrite ? "w" : "wx";
+      const fd = fs.openSync(dest, flag);
+      fs.writeSync(fd, updatedContent);
+      fs.closeSync(fd);
     } else {
       const flags = opts.overwrite ? 0 : fs.constants.COPYFILE_EXCL;
       fs.copyFileSync(absoluteSource, dest, flags);

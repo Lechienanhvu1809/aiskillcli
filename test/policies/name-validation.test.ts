@@ -49,8 +49,8 @@ describe("validateSkillName", () => {
     expect(() => validateSkillName(".md")).toThrow(SkillValidationError);
   });
 
-  it("từ chối tên có ký tự đặc biệt (dấu cách)", () => {
-    expect(() => validateSkillName("my skill")).toThrow(SkillValidationError);
+  it("chấp nhận tên có ký tự đặc biệt (dấu cách)", () => {
+    expect(validateSkillName("my skill")).toBe("my skill");
   });
 
   it("từ chối tên có ký tự đặc biệt (!)", () => {

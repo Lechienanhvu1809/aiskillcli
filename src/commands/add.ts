@@ -1,5 +1,5 @@
 import type { CliContext } from "../context.js";
-import { syncPush } from "../policies/git-sync.js";
+import { syncPull, syncPush } from "../policies/git-sync.js";
 import { validateSkillName } from "../policies/name-validation.js";
 import { addSkill, skillExists } from "../policies/skill-registry.js";
 import { handleError, success, warn } from "../utils/output.js";
@@ -12,6 +12,9 @@ export function runAdd(
 ): void {
   try {
     const name = validateSkillName(rawName);
+
+    // Pull trước khi check exists và add
+    syncPull(ctx);
 
     // Policy: Cảnh báo nếu overwrite, không silent
     if (skillExists(ctx, name) && !opts.force) {

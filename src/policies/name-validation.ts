@@ -1,4 +1,3 @@
-import path from "node:path";
 
 /**
  * Business Rule: Validate và sanitize tên skill.
@@ -14,8 +13,8 @@ export class SkillValidationError extends Error {
 }
 
 const MAX_SKILL_NAME_LENGTH = 100;
-// Chỉ cho phép: chữ cái, số, gạch ngang, gạch dưới
-const VALID_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
+// Cho phép: chữ cái (cả tiếng Việt/Unicode), số, gạch ngang, gạch dưới, khoảng trắng, và dấu chấm
+const VALID_NAME_PATTERN = /^[\p{L}\p{N}_\-. ]+$/u;
 // Các tên bị cấm trên Windows
 const WINDOWS_RESERVED_NAMES = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
 
@@ -63,7 +62,7 @@ export function validateSkillName(rawName: string): string {
   // Reject ký tự đặc biệt
   if (!VALID_NAME_PATTERN.test(withoutExt)) {
     throw new SkillValidationError(
-      `Tên skill chỉ được chứa chữ cái, số, gạch ngang (-) và gạch dưới (_). Nhận được: "${withoutExt}"`,
+      `Tên skill chỉ được chứa chữ cái, số, khoảng trắng, dấu chấm, gạch ngang (-) và gạch dưới (_). Nhận được: "${withoutExt}"`,
     );
   }
 

@@ -48,6 +48,10 @@ export function syncPush(ctx: CliContext, message: string): boolean {
 
 /** Khởi tạo git repo và link với remote */
 export function initSync(ctx: CliContext, remoteUrl: string): { ok: boolean; message: string } {
+  if (!fs.existsSync(ctx.skillsDir)) {
+    fs.mkdirSync(ctx.skillsDir, { recursive: true });
+  }
+  
   const safeUrl = remoteUrl.replace(/https?:\/\/[^@]+@/, "https://***@");
   try {
     if (!isGitRepo(ctx)) {
@@ -55,10 +59,12 @@ export function initSync(ctx: CliContext, remoteUrl: string): { ok: boolean; mes
       try {
         execFileSync("git", ["commit", "--allow-empty", "-m", "Initial commit"], {
           cwd: ctx.skillsDir,
-          stdio: "ignore",
+          stdio: "pipe",
         });
-      } catch {
-        // ignore
+      } catch (err: any) {
+        if (err.stderr && err.stderr.toString().includes("Please tell me who you are")) {
+          return { ok: false, message: "Lỗi Git: Bạn chưa thiết lập danh tính Git. Hãy chạy `git config --global user.name 'Tên của bạn'` và `git config --global user.email 'Email'` trước." };
+        }
       }
     }
 

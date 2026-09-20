@@ -24,7 +24,7 @@ export async function runRun(ctx: CliContext, rawName: string, options: { yes?: 
     }
 
     const content = fs.readFileSync(skillFilePath, "utf8");
-    let scriptContent = extractBashHook(content);
+    const scriptContent = extractBashHook(content);
 
     if (!scriptContent) {
       info(`Kỹ năng "${name}" không chứa khối mã \`\`\`bash để thực thi.`);
@@ -51,7 +51,10 @@ export async function runRun(ctx: CliContext, rawName: string, options: { yes?: 
       }
     }
 
-    const execOptions: import("node:child_process").ExecSyncOptions = { stdio: "inherit" };
+    const execOptions: import("node:child_process").ExecSyncOptions = {
+      stdio: "inherit",
+      timeout: 300000, // 5 phút timeout mặc định
+    };
     if (os.platform() === "win32") {
       execOptions.shell = "bash";
     }
