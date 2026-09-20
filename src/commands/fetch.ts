@@ -1,17 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { CliContext } from "../context.js";
+import { generateDiff } from "../policies/diff.js";
+import { analyzeProject } from "../policies/project-analyzer.js";
 import {
-  FetchError,
-  type RemoteSkillEntry,
   downloadSkill,
+  FetchError,
   fetchManifest,
   findSkillInManifest,
   findSkillsByBundle,
   listRemoteSkills,
+  type RemoteSkillEntry,
 } from "../policies/registry-fetcher.js";
-import { skillExists, skillPath } from "../policies/skill-registry.js";
-import { analyzeProject } from "../policies/project-analyzer.js";
+import { getSkill, skillExists, skillPath } from "../policies/skill-registry.js";
 import { c, fatal } from "../utils/output.js";
 
 export interface FetchOptions {
@@ -21,6 +22,8 @@ export interface FetchOptions {
   auto?: boolean;
   /** Ghi đè skill đã có */
   force?: boolean;
+  /** So sánh khác biệt thay vì ghi đè */
+  diff?: boolean;
   /** Chỉ hiển thị skills có sẵn, không tải */
   list?: boolean;
 }
@@ -34,11 +37,32 @@ function printSkillEntry(entry: RemoteSkillEntry, installed: boolean): void {
   console.log(`            ${c.dim(`source: ${entry.source}`)}`);
 }
 
-async function writeSkill(ctx: CliContext, entry: RemoteSkillEntry, force: boolean): Promise<boolean> {
+async function writeSkill(
+  ctx: CliContext,
+  entry: RemoteSkillEntry,
+  opts: FetchOptions,
+): Promise<boolean> {
   const exists = skillExists(ctx, entry.name);
-  if (exists && !force) {
+
+  if (exists && opts.diff) {
+    const currentContent = getSkill(ctx, entry.name);
+    process.stdout.write(`  ${c.dim("↓")}  Đang tải ${c.accent(entry.name)} để so sánh...`);
+    const newContent = await downloadSkill(entry);
+    process.stdout.write(` ${c.ok("✓")}\n`);
+
+    const diffOutput = generateDiff(entry.name, currentContent, newContent);
+    if (diffOutput) {
+      console.log(`\n${c.bold(`Sự khác biệt cho kỹ năng "${entry.name}":`)}`);
+      console.log(diffOutput);
+    } else {
+      console.log(`\nKhông có sự thay đổi nào cho kỹ năng "${entry.name}".`);
+    }
+    return false; // Not installed/written
+  }
+
+  if (exists && !opts.force) {
     console.log(
-      `  ${c.warn("⚠")}  ${entry.name} ${c.dim("đã tồn tại — dùng --force để ghi đè")}`,
+      `  ${c.warn("⚠")}  ${entry.name} ${c.dim("đã tồn tại — dùng --force để ghi đè hoặc --diff để xem thay đổi")}`,
     );
     return false;
   }
@@ -84,16 +108,14 @@ export async function runFetch(
     fatal(err instanceof FetchError ? err.message : String(err));
     return;
   }
-  console.log(`${c.ok("✓")} Kết nối thành công (${Object.keys(manifest!.skills).length} skills có sẵn)\n`);
+  console.log(
+    `${c.ok("✓")} Kết nối thành công (${Object.keys(manifest!.skills).length} skills có sẵn)\n`,
+  );
 
   // ── --auto: analyze project + pick matching skills ─────────────────────────
   if (opts.auto) {
     const profile = analyzeProject(process.cwd());
-    const keywords = [
-      profile.language,
-      ...profile.frameworks,
-      ...profile.tools,
-    ].filter(Boolean);
+    const keywords = [profile.language, ...profile.frameworks, ...profile.tools].filter(Boolean);
 
     console.log(`${c.bold("Dự án hiện tại:")} ${profile.name} (${profile.language})`);
     console.log(`${c.dim("Tech stack:")} ${keywords.join(", ") || "unknown"}\n`);
@@ -113,7 +135,7 @@ export async function runFetch(
     console.log(`${c.bold(`Tìm thấy ${matched.length} skill phù hợp:`)}\n`);
     let installed = 0;
     for (const entry of matched) {
-      const ok = await writeSkill(ctx, entry, opts.force ?? false);
+      const ok = await writeSkill(ctx, entry, opts);
       if (ok) installed++;
     }
     console.log(`\n${c.ok("✓")} Đã cài ${installed}/${matched.length} skills.`);
@@ -130,7 +152,7 @@ export async function runFetch(
     console.log(`${c.bold(`Bundle "${opts.from}":`)} ${entries.length} skills\n`);
     let installed = 0;
     for (const entry of entries) {
-      const ok = await writeSkill(ctx, entry, opts.force ?? false);
+      const ok = await writeSkill(ctx, entry, opts);
       if (ok) installed++;
     }
     console.log(`\n${c.ok("✓")} Đã cài ${installed}/${entries.length} skills từ "${opts.from}".`);
@@ -139,7 +161,9 @@ export async function runFetch(
 
   // ── fetch <name>: fetch một skill cụ thể ────────────────────────────────────
   if (!name) {
-    fatal("Cần truyền tên skill, --from <bundle>, hoặc --auto.\nVí dụ: ai-skills fetch bash-defensive-patterns");
+    fatal(
+      "Cần truyền tên skill, --from <bundle>, hoặc --auto.\nVí dụ: ai-skills fetch bash-defensive-patterns",
+    );
     return;
   }
 
@@ -151,7 +175,7 @@ export async function runFetch(
     return;
   }
 
-  const ok = await writeSkill(ctx, entry, opts.force ?? false);
+  const ok = await writeSkill(ctx, entry, opts);
   if (ok) {
     console.log(`\n${c.ok("✓")} Skill "${entry.name}" đã được thêm vào kho local.`);
     console.log(c.dim(`   Dùng ${c.accent(`ai-skills apply ${entry.name}`)} để nhúng vào dự án.`));

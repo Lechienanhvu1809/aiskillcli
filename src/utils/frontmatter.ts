@@ -6,6 +6,7 @@ export interface SkillFrontmatter {
   name?: string;
   description?: string;
   tags?: string[];
+  requires?: string[];
   [key: string]: unknown;
 }
 
@@ -19,13 +20,13 @@ export function parseFrontmatter(content: string): SkillFrontmatter {
       const key = line.slice(0, colonIdx).trim();
       const valueStr = line.slice(colonIdx + 1).trim();
 
-      if (key === "tags") {
+      if (key === "tags" || key === "requires") {
         // Parse array format like: [tag1, tag2] or just comma separated string
         let cleaned = valueStr;
         if (cleaned.startsWith("[") && cleaned.endsWith("]")) {
           cleaned = cleaned.slice(1, -1);
         }
-        result.tags = cleaned
+        result[key] = cleaned
           .split(",")
           .map((t) => t.trim())
           .filter(Boolean);

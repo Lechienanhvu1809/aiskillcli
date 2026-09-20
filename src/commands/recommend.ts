@@ -37,7 +37,7 @@ export function runRecommend(ctx: CliContext, opts: RecommendOptions): void {
     return;
   }
 
-  const recommendations = recommendSkills(profile, skills);
+  const recommendations = recommendSkills(ctx, profile, skills);
 
   if (recommendations.length === 0) {
     info("Không tìm thấy kỹ năng phù hợp với dự án này.");

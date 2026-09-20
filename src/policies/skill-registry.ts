@@ -3,7 +3,8 @@ import path from "node:path";
 import type { CliContext } from "../context.js";
 import { injectTags, parseFrontmatter } from "../utils/frontmatter.js";
 import { type ScoredResult, searchWithTfIdf } from "./text-search.js";
-
+import { syncPush } from "./git-sync.js";
+import { embedText, saveVector } from "./semantic-search.js";
 /**
  * Business Rule: CRUD operations cho skill registry.
  * Tất cả I/O file tập trung ở đây, không có console.log.
@@ -67,6 +68,40 @@ export function getSkill(ctx: CliContext, name: string): string {
   const content = fs.readFileSync(p, "utf8");
   return content.replace(/\r\n?/g, "\n");
 }
+
+/** Đọc skill và tự động đệ quy lấy các skill phụ thuộc (Knowledge Graph traversal) */
+export function getSkillWithDependencies(
+  ctx: CliContext,
+  name: string,
+  maxDepth: number = 2,
+  visited: Set<string> = new Set()
+): string {
+  if (visited.has(name)) return ""; // Chống lặp vòng
+  visited.add(name);
+
+  const content = getSkill(ctx, name);
+  const frontmatter = parseFrontmatter(content);
+
+  let dependenciesContent = "";
+  if (frontmatter.requires && frontmatter.requires.length > 0 && maxDepth > 0) {
+    for (const dep of frontmatter.requires) {
+      if (!visited.has(dep)) {
+        try {
+          const depContent = getSkillWithDependencies(ctx, dep, maxDepth - 1, visited);
+          if (depContent) {
+            dependenciesContent += `\n\n--- BẮT ĐẦU ĐIỀU KIỆN TIÊN QUYẾT: ${dep} ---\n${depContent}\n--- KẾT THÚC ĐIỀU KIỆN TIÊN QUYẾT: ${dep} ---\n\n`;
+          }
+        } catch {
+          // Ignore missing dependencies
+        }
+      }
+    }
+  }
+
+  // Gộp dependencies lên trên, skill chính nằm dưới
+  return (dependenciesContent + content).trim();
+}
+
 
 /** Thêm skill từ file có sẵn */
 export function addSkill(
@@ -146,6 +181,24 @@ export function searchSkills(ctx: CliContext, keyword: string, tag?: string): Se
     }
   }
   return results;
+}
+
+/** 
+ * Lưu skill mới hoặc ghi đè, tự động cập nhật vector và push git 
+ */
+export async function saveSkill(ctx: CliContext, name: string, content: string): Promise<void> {
+  ensureSkillsDir(ctx);
+  const p = skillPath(ctx, name);
+  fs.writeFileSync(p, content, "utf8");
+  
+  try {
+    const vector = await embedText(content);
+    saveVector(ctx, name, vector);
+  } catch (err) {
+    // Bỏ qua nếu lỗi embedding để không cản trở việc lưu skill
+  }
+
+  syncPush(ctx, `Auto-sync: Save skill ${name} via AI learning`);
 }
 
 /** Tìm kiếm thông minh với TF-IDF + fuzzy matching */

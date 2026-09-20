@@ -44,15 +44,22 @@ export function runRun(ctx: CliContext, rawName: string): void {
 
     // ⚠️ Cảnh báo bảo mật cho người dùng
     warn("Đang thực thi code từ file Markdown. Chỉ chạy các skill từ nguồn đáng tin cậy!");
-    console.log(`\n🚀 Thực thi kỹ năng "${name}"...\n`);
 
-    // Windows: cmd.exe không hiểu '#' là comment — filter ra
+    // Windows: cmd.exe không hiểu '#' là comment — chỉ filter dòng thuần comment
+    // (dòng mà ký tự không-whitespace đầu tiên là '#'), giữ nguyên '#' trong strings/arguments
     if (os.platform() === "win32") {
       scriptContent = scriptContent
         .split("\n")
-        .filter((line) => !line.trim().startsWith("#"))
+        .filter((line) => !/^\s*#/.test(line))
         .join("\n");
     }
+
+    // Preview script trước khi chạy
+    console.log(`\n🚀 Thực thi kỹ năng "${name}":\n`);
+    for (const line of scriptContent.split("\n")) {
+      if (line.trim()) console.log(`  │ ${line}`);
+    }
+    console.log();
 
     const output = execSync(scriptContent, { encoding: "utf8", stdio: "pipe" });
     console.log(output);

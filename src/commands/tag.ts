@@ -1,8 +1,7 @@
 import fs from "node:fs";
-import path from "node:path";
 import type { CliContext } from "../context.js";
+import { getSkill, listSkills, skillExists, skillPath } from "../policies/skill-registry.js";
 import { getTags, injectTags, removeTag, renameTag } from "../utils/frontmatter.js";
-import { listSkills, skillExists, skillPath } from "../policies/skill-registry.js";
 import { c, fatal } from "../utils/output.js";
 
 /**
@@ -31,7 +30,9 @@ export function runTagAdd(ctx: CliContext, skillName: string, tags: string[]): v
   const toAdd = tags.filter((t) => !lower.has(t.toLowerCase()));
 
   if (toAdd.length === 0) {
-    console.log(`${c.warn("⚠")}  Tất cả tags đã tồn tại trong "${skillName}": ${current.map(t => c.accent(t)).join(", ")}`);
+    console.log(
+      `${c.warn("⚠")}  Tất cả tags đã tồn tại trong "${skillName}": ${current.map((t) => c.accent(t)).join(", ")}`,
+    );
     return;
   }
 
@@ -92,7 +93,7 @@ export function runTagList(ctx: CliContext): void {
   let untaggedCount = 0;
 
   for (const skill of skills) {
-    const content = fs.readFileSync(skill.path, "utf8");
+    const content = getSkill(ctx, skill.name);
     const tags = getTags(content);
     if (tags.length === 0) {
       untaggedCount++;
@@ -139,7 +140,7 @@ export function runTagRename(ctx: CliContext, oldTag: string, newTag: string): v
   let renamedCount = 0;
 
   for (const skill of skills) {
-    const content = fs.readFileSync(skill.path, "utf8");
+    const content = getSkill(ctx, skill.name);
     const { content: updated, renamed } = renameTag(content, oldTag, newTag);
     if (renamed) {
       fs.writeFileSync(skill.path, updated, "utf8");
@@ -158,22 +159,24 @@ export function runTagRename(ctx: CliContext, oldTag: string, newTag: string): v
 
 // ─── Dispatcher ───────────────────────────────────────────────────────────────
 
-export function runTag(
-  ctx: CliContext,
-  action: string,
-  args: string[],
-): void {
+export function runTag(ctx: CliContext, action: string, args: string[]): void {
   switch (action) {
     case "add": {
       const [skill, ...tags] = args;
-      if (!skill) { fatal("Usage: ai-skills tag add <skill> <tag1> [tag2...]"); return; }
+      if (!skill) {
+        fatal("Usage: ai-skills tag add <skill> <tag1> [tag2...]");
+        return;
+      }
       runTagAdd(ctx, skill, tags);
       break;
     }
     case "remove":
     case "rm": {
       const [skill, tag] = args;
-      if (!skill || !tag) { fatal("Usage: ai-skills tag remove <skill> <tag>"); return; }
+      if (!skill || !tag) {
+        fatal("Usage: ai-skills tag remove <skill> <tag>");
+        return;
+      }
       runTagRemove(ctx, skill, tag);
       break;
     }
@@ -185,7 +188,10 @@ export function runTag(
     case "rename":
     case "mv": {
       const [oldTag, newTag] = args;
-      if (!oldTag || !newTag) { fatal("Usage: ai-skills tag rename <old-tag> <new-tag>"); return; }
+      if (!oldTag || !newTag) {
+        fatal("Usage: ai-skills tag rename <old-tag> <new-tag>");
+        return;
+      }
       runTagRename(ctx, oldTag, newTag);
       break;
     }

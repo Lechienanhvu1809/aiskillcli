@@ -1,6 +1,7 @@
-import fs from "node:fs";
+import type { CliContext } from "../context.js";
+import { parseFrontmatter } from "../utils/frontmatter.js";
 import type { ProjectProfile } from "./project-analyzer.js";
-import type { SkillInfo } from "./skill-registry.js";
+import { getSkill, type SkillInfo } from "./skill-registry.js";
 
 /**
  * Business Rule: Gợi ý skills phù hợp với dự án.
@@ -18,8 +19,6 @@ export interface Recommendation {
   /** Điểm nội bộ (dùng để sort) */
   score: number;
 }
-
-import { parseFrontmatter } from "../utils/frontmatter.js";
 
 /** Kiểm tra keyword xuất hiện trong name, content, hoặc description */
 function matchesAny(keyword: string, ...sources: string[]): boolean {
@@ -121,6 +120,7 @@ function scoreToConfidence(score: number): Recommendation["confidence"] {
  * @param maxResults Số kết quả tối đa trả về (mặc định 5)
  */
 export function recommendSkills(
+  ctx: CliContext,
   profile: ProjectProfile,
   availableSkills: SkillInfo[],
   maxResults = 5,
@@ -130,7 +130,7 @@ export function recommendSkills(
   for (const skill of availableSkills) {
     let content: string;
     try {
-      content = fs.readFileSync(skill.path, "utf8");
+      content = getSkill(ctx, skill.name);
     } catch {
       continue; // Skip unreadable files
     }

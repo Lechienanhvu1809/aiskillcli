@@ -1,7 +1,7 @@
 import type { CliContext } from "../context.js";
 import { syncPull } from "../policies/git-sync.js";
 import {
-  type BruteForceResult,
+  type SearchResult,
   searchSkills,
   searchSkillsSemantic,
 } from "../policies/skill-registry.js";
@@ -37,7 +37,7 @@ function displaySemanticResults(results: ScoredResult[], keyword: string): void 
 }
 
 /** Hiển thị kết quả brute-force search */
-function displayBruteForceResults(results: BruteForceResult[], keyword: string): void {
+function displayBruteForceResults(results: SearchResult[], keyword: string): void {
   console.log(`Kết quả tìm kiếm cho ${c.accent(`"${keyword}"`)}: \n`);
   if (results.length === 0) {
     console.log(c.dim("Không tìm thấy kỹ năng nào khớp với từ khóa."));

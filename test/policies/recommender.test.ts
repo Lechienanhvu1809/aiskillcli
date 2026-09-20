@@ -2,15 +2,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { CliContext } from "../../src/context.js";
 import type { ProjectProfile } from "../../src/policies/project-analyzer.js";
 import { recommendSkills } from "../../src/policies/recommender.js";
 import type { SkillInfo } from "../../src/policies/skill-registry.js";
 
 describe("recommender policy", () => {
   let tmpDir: string;
+  let ctx: CliContext;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "recommender-test-"));
+    ctx = { skillsDir: tmpDir, verbose: false, projectDir: process.cwd() };
   });
 
   afterEach(() => {
@@ -45,7 +48,7 @@ describe("recommender policy", () => {
       ),
     ];
 
-    const recs = recommendSkills(baseProfile, skills);
+    const recs = recommendSkills(ctx, baseProfile, skills);
     expect(recs.length).toBeGreaterThan(0);
     expect(recs[0].skillName).toBe("react-patterns");
   });
@@ -58,7 +61,7 @@ describe("recommender policy", () => {
       ),
     ];
 
-    const recs = recommendSkills(baseProfile, skills);
+    const recs = recommendSkills(ctx, baseProfile, skills);
     expect(recs.length).toBeGreaterThan(0);
     expect(recs[0].skillName).toBe("vitest-setup");
   });
@@ -71,7 +74,7 @@ describe("recommender policy", () => {
       ),
     ];
 
-    const recs = recommendSkills(baseProfile, skills);
+    const recs = recommendSkills(ctx, baseProfile, skills);
     expect(recs.length).toBeGreaterThan(0);
     expect(recs[0].reason).toContain("typescript");
   });
@@ -93,12 +96,12 @@ describe("recommender policy", () => {
       ),
     ];
 
-    const recs = recommendSkills(profile, skills);
+    const recs = recommendSkills(ctx, profile, skills);
     expect(recs).toEqual([]);
   });
 
   it("returns empty array when no skills available", () => {
-    const recs = recommendSkills(baseProfile, []);
+    const recs = recommendSkills(ctx, baseProfile, []);
     expect(recs).toEqual([]);
   });
 
@@ -113,7 +116,7 @@ describe("recommender policy", () => {
       );
     }
 
-    const recs = recommendSkills(baseProfile, skills, 3);
+    const recs = recommendSkills(ctx, baseProfile, skills, 3);
     expect(recs.length).toBeLessThanOrEqual(3);
   });
 
@@ -129,7 +132,7 @@ describe("recommender policy", () => {
       ),
     ];
 
-    const recs = recommendSkills(baseProfile, skills);
+    const recs = recommendSkills(ctx, baseProfile, skills);
     // The first one matches react + typescript + vitest → should be high confidence
     const topRec = recs.find((r) => r.skillName === "react-typescript-testing");
     expect(topRec).toBeDefined();
@@ -148,7 +151,7 @@ describe("recommender policy", () => {
       ),
     ];
 
-    const recs = recommendSkills(baseProfile, skills);
+    const recs = recommendSkills(ctx, baseProfile, skills);
     if (recs.length >= 2) {
       expect(recs[0].score).toBeGreaterThanOrEqual(recs[1].score);
     }
@@ -164,7 +167,7 @@ describe("recommender policy", () => {
     ];
 
     // Should not throw, just skip the missing file
-    const recs = recommendSkills(baseProfile, skills);
+    const recs = recommendSkills(ctx, baseProfile, skills);
     expect(recs.some((r) => r.skillName === "react-guide")).toBe(true);
     expect(recs.some((r) => r.skillName === "missing-file")).toBe(false);
   });

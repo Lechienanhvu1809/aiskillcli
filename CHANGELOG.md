@@ -7,6 +7,26 @@ và dự án tuân theo [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.3.0] — 2026-09-17
+
+### Added
+- **Command `export`**: Gói một hoặc nhiều kỹ năng thành một file `ai-skills-bundle` JSON.
+  - `ai-skills export <name>` — Xuất một kỹ năng.
+  - `ai-skills export --all` — Xuất tất cả các kỹ năng trong kho.
+  - `ai-skills export --tag <tag>` — Xuất tất cả kỹ năng có tag tương ứng.
+- **Command `import`**: Nhập kỹ năng từ file bundle JSON.
+  - `ai-skills import <file>` — Nhập các kỹ năng, bỏ qua các kỹ năng đã tồn tại.
+  - `ai-skills import <file> --force` — Ghi đè kỹ năng đã tồn tại.
+- **Command `diff`**: So sánh một kỹ năng với một file local.
+  - `ai-skills diff <name> <file>` — In ra khác biệt định dạng màu sử dụng `git diff --no-index`.
+- **Cờ `--diff`**: Hỗ trợ xem trước những thay đổi trước khi ghi đè kỹ năng.
+  - Tích hợp vào `ai-skills fetch [name] --diff` và `ai-skills import <file> --diff`.
+- **`policies/bundle.ts`**: Xử lý logic gộp file, đọc cấu trúc JSON và tạo file bundle không phụ thuộc thư viện ngoài.
+- **`policies/diff.ts`**: Xử lý logic so sánh văn bản sử dụng lệnh Git tích hợp của hệ điều hành để đảm bảo thiết kế zero-dependency.
+- **27 tests mới** — tổng cộng 157 tests (bundle, export, import, diff).
+
+---
+
 ## [1.2.0] — 2026-09-17
 
 ### Added

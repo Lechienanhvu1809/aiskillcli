@@ -2,8 +2,11 @@ import { program } from "commander";
 import { runAdd } from "./commands/add.js";
 import { runApply } from "./commands/apply.js";
 import { type CreateOptions, runCreate } from "./commands/create.js";
+import { runDiff } from "./commands/diff.js";
+import { type ExportOptions, runExport } from "./commands/export.js";
 import { type FetchOptions, runFetch } from "./commands/fetch.js";
 import { runGet } from "./commands/get.js";
+import { type ImportOptions, runImport } from "./commands/import.js";
 import { runInitSync } from "./commands/init-sync.js";
 import { runList } from "./commands/list.js";
 import { type RecommendOptions, runRecommend } from "./commands/recommend.js";
@@ -14,13 +17,14 @@ import { runStats } from "./commands/stats.js";
 import { runTag } from "./commands/tag.js";
 import { runUpdate } from "./commands/update.js";
 import { createCliContext } from "./context.js";
+import { CLI_VERSION } from "./version.js";
 
 const ctx = createCliContext();
 
 program
   .name("ai-skills")
   .description("CLI Tool — Thư viện lưu trữ Kỹ năng cho AI (Local AI Skill Registry)")
-  .version("1.0.0");
+  .version(CLI_VERSION);
 
 program
   .command("init-sync <url>")
@@ -96,11 +100,17 @@ program
   .action(() => runStats(ctx));
 
 program
+  .command("diff <name> <file>")
+  .description("So sánh kỹ năng trong kho với file bên ngoài")
+  .action((name: string, file: string) => runDiff(ctx, name, file));
+
+program
   .command("fetch [name]")
   .description("Tải skill từ autoskills registry về kho local")
   .option("--from <bundle>", "Tải toàn bộ skills từ một bundle (vd: wshobson/agents)")
   .option("--auto", "Tự động detect tech stack và fetch skills phù hợp")
   .option("--force", "Ghi đè skill đã tồn tại")
+  .option("--diff", "So sánh khác biệt thay vì ghi đè")
   .option("--list", "Chỉ hiển thị danh sách skills có sẵn, không tải")
   .action((name: string | undefined, opts: FetchOptions) => runFetch(ctx, name, opts));
 
@@ -125,5 +135,21 @@ program
     ].join("\n"),
   )
   .action((action: string, args: string[]) => runTag(ctx, action, args));
+
+program
+  .command("export <file> [skills...]")
+  .description("Đóng gói skills thành một file JSON")
+  .option("--tag <tag>", "Export các skills có chứa tag này")
+  .option("--all", "Export toàn bộ kho kỹ năng")
+  .action((file: string, skills: string[], opts: ExportOptions) =>
+    runExport(ctx, file, skills, opts),
+  );
+
+program
+  .command("import <file>")
+  .description("Nhập các skills từ file bundle JSON")
+  .option("--force", "Ghi đè nếu skill đã tồn tại")
+  .option("--diff", "So sánh khác biệt thay vì ghi đè")
+  .action((file: string, opts: ImportOptions) => runImport(ctx, file, opts));
 
 program.parse();

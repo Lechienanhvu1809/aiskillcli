@@ -32,9 +32,27 @@ export function info(message: string): void {
   console.log(`${c.dim("ℹ")} ${message}`);
 }
 
-/** Handle SkillValidationError và SkillRegistryError, gọi fatal cho cả hai */
+/** Gợi ý hành động dựa trên error code */
+const ERROR_HINTS: Record<string, string> = {
+  NOT_FOUND: "Kiểm tra tên skill bằng: ai-skills list",
+  ALREADY_EXISTS: "Dùng --force để ghi đè",
+  SOURCE_NOT_FOUND: "Kiểm tra đường dẫn file nguồn",
+  IO_ERROR: "Kiểm tra quyền truy cập thư mục ~/.ai-skills",
+  INVALID_BUNDLE: "Đảm bảo file là định dạng JSON hợp lệ từ ai-skills export",
+  UNSUPPORTED_VERSION: "Cập nhật ai-skill-cli: npm update -g ai-skill-cli",
+  NETWORK_ERROR: "Kiểm tra kết nối mạng và thử lại",
+  HASH_MISMATCH: "Nội dung từ registry có thể đã bị thay đổi — liên hệ maintainer",
+  INVALID_MANIFEST: "Registry manifest không hợp lệ — thử lại sau",
+};
+
+/** Handle SkillValidationError, SkillRegistryError, FetchError, BundleError — gọi fatal với hint */
 export function handleError(err: unknown): never {
   if (err instanceof Error) {
+    const code = (err as any).code as string | undefined;
+    const hint = code ? ERROR_HINTS[code] : undefined;
+    if (hint) {
+      fatal(`${err.message}\n  ${c.dim(`💡 ${hint}`)}`);
+    }
     fatal(err.message);
   }
   fatal(String(err));
