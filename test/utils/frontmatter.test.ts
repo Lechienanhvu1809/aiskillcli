@@ -15,6 +15,12 @@ describe("frontmatter utils", () => {
       expect(result.tags).toEqual(["tag1", "tag2"]);
     });
 
+    it("should parse requires array format", () => {
+      const content = `---\nname: skill\nrequires: [skillA, skillB]\n---`;
+      const result = parseFrontmatter(content);
+      expect(result.requires).toEqual(["skillA", "skillB"]);
+    });
+
     it("should parse tags comma separated string", () => {
       const content = `---\nname: skill\ntags: tag1, tag2\n---`;
       const result = parseFrontmatter(content);

@@ -9,6 +9,7 @@ import { c, fatal, handleError, info, success, warn } from "../utils/output.js";
 export interface ExportOptions {
   tag?: string;
   all?: boolean;
+  withDeps?: boolean;
 }
 
 export function runExport(
@@ -35,6 +36,29 @@ export function runExport(
       }
     } else {
       toExport = skills;
+    }
+
+    if (opts.withDeps) {
+      const visited = new Set<string>();
+      
+      function addDeps(name: string) {
+        if (visited.has(name)) return;
+        visited.add(name);
+        try {
+          const content = fs.readFileSync(path.join(ctx.skillsDir, `${name}.md`), "utf8");
+          const frontmatter = parseFrontmatter(content);
+          if (frontmatter.requires && Array.isArray(frontmatter.requires)) {
+            for (const req of frontmatter.requires) {
+              addDeps(req);
+            }
+          }
+        } catch {}
+      }
+
+      for (const s of toExport) {
+        addDeps(s);
+      }
+      toExport = Array.from(visited);
     }
 
     if (toExport.length === 0) {

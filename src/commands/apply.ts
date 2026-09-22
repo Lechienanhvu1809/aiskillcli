@@ -3,6 +3,7 @@ import path from "node:path";
 import type { CliContext } from "../context.js";
 import { validateSkillName } from "../policies/name-validation.js";
 import { skillPath } from "../policies/skill-registry.js";
+import { trackUsage } from "../policies/analytics.js";
 import { handleError, info, success } from "../utils/output.js";
 
 export function runApply(ctx: CliContext, rawName: string): void {
@@ -31,6 +32,8 @@ export function runApply(ctx: CliContext, rawName: string): void {
       fs.copyFileSync(sourcePath, targetPath);
       method = "Copy";
     }
+
+    trackUsage(ctx, name);
 
     success(`Đã apply kỹ năng "${name}" vào dự án! (phương thức: ${method})`);
     if (method === "Copy") {

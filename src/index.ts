@@ -2,6 +2,7 @@
 import { program } from "commander";
 import { runAdd } from "./commands/add.js";
 import { runApply } from "./commands/apply.js";
+import { runAudit } from "./commands/audit.js";
 import { type CreateOptions, runCreate } from "./commands/create.js";
 import { runDiff } from "./commands/diff.js";
 import { type ExportOptions, runExport } from "./commands/export.js";
@@ -41,7 +42,10 @@ program
   .command("get <name>")
   .description("Đọc và in ra nội dung của một kỹ năng cụ thể")
   .option("--no-sync", "Bỏ qua việc đồng bộ git tự động")
-  .action((name: string, opts: { sync?: boolean }) => runGet(ctx, name, { noSync: !opts.sync }));
+  .option("-r, --recursive", "Tự động tải nội dung của các skill phụ thuộc (thông qua requires)")
+  .action((name: string, opts: { sync?: boolean; recursive?: boolean }) =>
+    runGet(ctx, name, { noSync: !opts.sync, recursive: opts.recursive }),
+  );
 
 program
   .command("add <name> <file_path>")
@@ -103,6 +107,12 @@ program
   .action(() => runStats(ctx));
 
 program
+  .command("audit")
+  .alias("analytics")
+  .description("Phân tích dữ liệu sử dụng kỹ năng và đề xuất dọn dẹp")
+  .action(() => runAudit(ctx));
+
+program
   .command("diff <name> <file>")
   .description("So sánh kỹ năng trong kho với file bên ngoài")
   .action((name: string, file: string) => runDiff(ctx, name, file));
@@ -144,6 +154,7 @@ program
   .description("Đóng gói skills thành một file JSON")
   .option("--tag <tag>", "Export các skills có chứa tag này")
   .option("--all", "Export toàn bộ kho kỹ năng")
+  .option("--with-deps", "Bao gồm cả các skill phụ thuộc (thông qua requires)")
   .action((file: string, skills: string[], opts: ExportOptions) =>
     runExport(ctx, file, skills, opts),
   );
