@@ -8,13 +8,15 @@ export function runAdd(
   ctx: CliContext,
   rawName: string,
   filePath: string,
-  opts: { force?: boolean; tags?: string[] },
+  opts: { force?: boolean; tags?: string[]; noSync?: boolean },
 ): void {
   try {
     const name = validateSkillName(rawName);
 
     // Pull trước khi check exists và add
-    syncPull(ctx);
+    if (!opts.noSync) {
+      syncPull(ctx);
+    }
 
     // Policy: Cảnh báo nếu overwrite, không silent
     if (skillExists(ctx, name) && !opts.force) {
@@ -27,7 +29,9 @@ export function runAdd(
 
     addSkill(ctx, name, filePath, { overwrite: opts.force, tags: opts.tags });
     success(`Đã thêm kỹ năng "${name}" vào kho lưu trữ!`);
-    syncPush(ctx, `Auto-sync: Add skill ${name}`);
+    if (!opts.noSync) {
+      syncPush(ctx, `Auto-sync: Add skill ${name}`);
+    }
   } catch (err) {
     handleError(err);
   }
