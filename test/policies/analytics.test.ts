@@ -16,7 +16,7 @@ vi.mock("node:fs", () => ({
 }));
 
 vi.mock("../../src/policies/skill-registry.js", () => ({
-  getSkillList: vi.fn(),
+  listSkills: vi.fn(),
 }));
 
 describe("Analytics Policy", () => {
@@ -101,13 +101,17 @@ describe("Analytics Policy", () => {
 
   describe("auditSkills", () => {
     it("báo kho trống nếu không có skill nào", () => {
-      vi.mocked(registry.getSkillList).mockReturnValue([]);
+      vi.mocked(registry.listSkills).mockReturnValue([]);
       auditSkills(ctx);
       expect(consoleSpy).toHaveBeenCalledWith(pc.yellow("Kho kỹ năng trống."));
     });
 
     it("in ra báo cáo phân tích bình thường", () => {
-      vi.mocked(registry.getSkillList).mockReturnValue(["skill-1", "skill-2", "skill-3"]);
+      vi.mocked(registry.listSkills).mockReturnValue([
+        { name: "skill-1", path: "" },
+        { name: "skill-2", path: "" },
+        { name: "skill-3", path: "" }
+      ]);
       vi.mocked(fs.existsSync).mockReturnValue(true);
       
       const now = Date.now();
@@ -131,7 +135,7 @@ describe("Analytics Policy", () => {
     });
 
     it("in ra báo cáo tốt khi mọi kỹ năng đều được dùng", () => {
-      vi.mocked(registry.getSkillList).mockReturnValue(["skill-1"]);
+      vi.mocked(registry.listSkills).mockReturnValue([{ name: "skill-1", path: "" }]);
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
         "skill-1": { usageCount: 100, lastUsed: Date.now() },

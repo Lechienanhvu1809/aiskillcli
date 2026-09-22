@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { CliContext } from "../context.js";
-import { getSkillList } from "./skill-registry.js";
+import { listSkills } from "./skill-registry.js";
 import pc from "picocolors";
 
 export interface SkillAnalytics {
@@ -46,7 +46,7 @@ export function trackUsage(ctx: CliContext, skillName: string): void {
 
 export function auditSkills(ctx: CliContext): void {
   const data = readAnalytics(ctx);
-  const allSkills = getSkillList(ctx);
+  const allSkills = listSkills(ctx).map(s => s.name);
   
   if (allSkills.length === 0) {
     console.log(pc.yellow("Kho kỹ năng trống."));

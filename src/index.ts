@@ -9,6 +9,7 @@ import { type ExportOptions, runExport } from "./commands/export.js";
 import { type FetchOptions, runFetch } from "./commands/fetch.js";
 import { runGet } from "./commands/get.js";
 import { type ImportOptions, runImport } from "./commands/import.js";
+import { type LearnOptions, runLearn } from "./commands/learn.js";
 import { runInitSync } from "./commands/init-sync.js";
 import { runList } from "./commands/list.js";
 import { type RecommendOptions, runRecommend } from "./commands/recommend.js";
@@ -50,10 +51,17 @@ program
 program
   .command("add <name> <file_path>")
   .description("Thêm một kỹ năng mới từ file Markdown có sẵn")
-  .option("--force", "Ghi đè nếu skill đã tồn tại")
-  .option("--tags <tags...>", "Danh sách tags (cách nhau bởi dấu cách)")
-  .action((name: string, filePath: string, opts: { force?: boolean; tags?: string[] }) =>
-    runAdd(ctx, name, filePath, opts),
+  .option("--no-sync", "Bỏ qua việc đồng bộ git tự động")
+  .action((name: string, filePath: string, opts: { sync?: boolean }) =>
+    runAdd(ctx, name, filePath, { noSync: !opts.sync }),
+  );
+
+program
+  .command("learn <topic> <lesson>")
+  .description("Tự động trích xuất bài học và ghi vào sổ tay kỹ năng (learned-<topic>)")
+  .option("--no-sync", "Bỏ qua việc đồng bộ git tự động")
+  .action((topic: string, lesson: string, opts: LearnOptions) =>
+    runLearn(ctx, topic, lesson, opts),
   );
 
 program
