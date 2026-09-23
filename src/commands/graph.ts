@@ -21,7 +21,8 @@ export function runGraph(ctx: CliContext) {
     const nodes: any[] = [];
     const edges: any[] = [];
     
-    for (const skillName of skills) {
+    for (const skill of skills) {
+      const skillName = typeof skill === "string" ? skill : skill.name;
       const content = getSkill(ctx, skillName);
       const parsed = parseFrontmatter(content);
       

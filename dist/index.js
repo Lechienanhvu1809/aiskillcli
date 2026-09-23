@@ -810,7 +810,8 @@ function runGraph(ctx) {
 		const skills = listSkills(ctx);
 		const nodes = [];
 		const edges = [];
-		for (const skillName of skills) {
+		for (const skill of skills) {
+			const skillName = typeof skill === "string" ? skill : skill.name;
 			const content = getSkill(ctx, skillName);
 			const parsed = parseFrontmatter(content);
 			nodes.push({
