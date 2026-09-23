@@ -20,7 +20,7 @@
     "ai-skills-mcp": "./dist/mcp.js"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && mkdir -p dist/viewer && node -e \"fs.copyFileSync('src/viewer/index.html', 'dist/viewer/index.html')\"",
     "dev": "tsx src/index.ts",
     "mcp": "tsx src/mcp.ts",
     "test": "vitest run",

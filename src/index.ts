@@ -8,6 +8,7 @@ import { runDiff } from "./commands/diff.js";
 import { type ExportOptions, runExport } from "./commands/export.js";
 import { type FetchOptions, runFetch } from "./commands/fetch.js";
 import { runGet } from "./commands/get.js";
+import { runGraph } from "./commands/graph.js";
 import { type ImportOptions, runImport } from "./commands/import.js";
 import { type LearnOptions, runLearn } from "./commands/learn.js";
 import { runInitSync } from "./commands/init-sync.js";
@@ -63,6 +64,11 @@ program
   .action((topic: string, lesson: string, opts: LearnOptions) =>
     runLearn(ctx, topic, lesson, opts),
   );
+
+program
+  .command("graph")
+  .description("Khởi động Web Viewer để xem đồ thị liên kết kỹ năng (Knowledge Graph)")
+  .action(() => runGraph(ctx));
 
 program
   .command("remove <name>")
