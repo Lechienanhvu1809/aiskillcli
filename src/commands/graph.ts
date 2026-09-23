@@ -57,23 +57,28 @@ export function runGraph(ctx: CliContext) {
       }
       
       if (req.url === "/" || req.url === "/index.html") {
-        // Tìm file index.html trong dist/viewer
-        const viewerPath = path.join(__dirname, "..", "viewer", "index.html");
-        if (fs.existsSync(viewerPath)) {
-          const html = fs.readFileSync(viewerPath, "utf8");
+        // Cố gắng tìm ở nhiều vị trí (do bundle có thể làm thay đổi cấu trúc thư mục)
+        const pathsToTry = [
+          path.join(__dirname, "viewer", "index.html"), // khi chạy từ dist/index.js
+          path.join(__dirname, "..", "viewer", "index.html"), // khi chạy trong src/commands bằng tsx
+          path.join(process.cwd(), "dist", "viewer", "index.html"), // fallback 
+          path.join(process.cwd(), "src", "viewer", "index.html") // fallback dev
+        ];
+
+        let html = "";
+        for (const p of pathsToTry) {
+          if (fs.existsSync(p)) {
+            html = fs.readFileSync(p, "utf8");
+            break;
+          }
+        }
+
+        if (html) {
           res.writeHead(200, { "Content-Type": "text/html" });
           res.end(html);
         } else {
-          // Fallback nếu chạy trong dev (src/viewer)
-          const srcViewerPath = path.join(__dirname, "..", "..", "src", "viewer", "index.html");
-          if (fs.existsSync(srcViewerPath)) {
-            const html = fs.readFileSync(srcViewerPath, "utf8");
-            res.writeHead(200, { "Content-Type": "text/html" });
-            res.end(html);
-          } else {
-            res.writeHead(404);
-            res.end("Viewer HTML not found.");
-          }
+          res.writeHead(404);
+          res.end("Viewer HTML not found. Looked in: " + pathsToTry.join(", "));
         }
         return;
       }
