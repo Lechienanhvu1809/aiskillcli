@@ -3,48 +3,76 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Skills Graph</title>
+  <title>Source Code Dependency Graph</title>
   <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Outfit:wght@300;500;700&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --bg-color: #0b0c10;
+      --accent: #66fcf1;
+      --accent-dim: #45a29e;
+      --panel-bg: rgba(11, 12, 16, 0.75);
+      --text-main: #c5c6c7;
+      --text-bright: #ffffff;
+    }
+
     body, html {
       margin: 0;
       padding: 0;
       width: 100%;
       height: 100%;
-      background-color: #121212;
-      color: #e0e0e0;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--bg-color);
+      /* Cyber/Data-sci grid background */
+      background-image: 
+        linear-gradient(rgba(102, 252, 241, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(102, 252, 241, 0.05) 1px, transparent 1px);
+      background-size: 30px 30px;
+      background-position: center center;
+      color: var(--text-main);
+      font-family: 'Outfit', sans-serif;
       overflow: hidden;
     }
     
     #header {
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 50px;
-      background: rgba(20, 20, 20, 0.9);
-      border-bottom: 1px solid #333;
+      top: 20px;
+      left: 20px;
+      width: calc(100% - 40px);
+      height: 60px;
+      background: var(--panel-bg);
+      border: 1px solid rgba(102, 252, 241, 0.2);
+      border-radius: 12px;
       display: flex;
       align-items: center;
-      padding: 0 20px;
+      padding: 0 25px;
       z-index: 10;
       box-sizing: border-box;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      animation: slideDown 0.6s cubic-bezier(0.16, 1, 0.3, 1);
     }
     
     #header h1 {
       margin: 0;
-      font-size: 16px;
-      font-weight: 600;
+      font-size: 20px;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 1px;
-      color: #fff;
+      letter-spacing: 2px;
+      color: var(--accent);
+      text-shadow: 0 0 10px rgba(102, 252, 241, 0.4);
     }
 
     #header .stats {
       margin-left: auto;
-      font-size: 14px;
-      color: #aaa;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: var(--accent-dim);
+      background: rgba(69, 162, 158, 0.1);
+      padding: 6px 12px;
+      border-radius: 20px;
+      border: 1px solid rgba(69, 162, 158, 0.3);
     }
 
     #network {
@@ -53,9 +81,9 @@
       position: absolute;
       top: 0;
       left: 0;
+      animation: fadeIn 1s ease-in-out;
     }
 
-    /* Vis Network styling */
     .vis-network {
       outline: none;
     }
@@ -63,43 +91,92 @@
     #panel {
       position: absolute;
       right: 20px;
-      top: 70px;
-      width: 250px;
-      background: rgba(30, 30, 30, 0.85);
-      border: 1px solid #444;
-      border-radius: 8px;
-      padding: 15px;
+      top: 100px;
+      width: 320px;
+      background: var(--panel-bg);
+      border: 1px solid rgba(102, 252, 241, 0.2);
+      border-radius: 12px;
+      padding: 20px;
       z-index: 10;
-      backdrop-filter: blur(10px);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      transform: translateX(120%);
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    #panel.active {
+      transform: translateX(0);
     }
     
     #panel h3 {
       margin-top: 0;
-      font-size: 14px;
-      border-bottom: 1px solid #555;
-      padding-bottom: 8px;
-      color: #ddd;
+      font-size: 16px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 1px solid rgba(102, 252, 241, 0.2);
+      padding-bottom: 10px;
+      color: var(--text-bright);
     }
     
     #panel-content {
+      font-size: 14px;
+      color: var(--text-main);
+      line-height: 1.6;
+    }
+
+    .prop-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--accent-dim);
+      letter-spacing: 1px;
+      display: block;
+      margin-top: 12px;
+      margin-bottom: 4px;
+    }
+
+    .prop-value {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-bright);
       font-size: 13px;
-      color: #bbb;
-      line-height: 1.5;
+      word-break: break-all;
+    }
+
+    .tag-chip {
+      display: inline-block;
+      padding: 4px 10px;
+      background: rgba(102, 252, 241, 0.1);
+      border: 1px solid rgba(102, 252, 241, 0.3);
+      border-radius: 4px;
+      font-size: 11px;
+      color: var(--accent);
+      margin-right: 6px;
+      margin-bottom: 6px;
+    }
+
+    @keyframes slideDown {
+      from { transform: translateY(-100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
   </style>
 </head>
 <body>
 
 <div id="header">
-  <h1>AI Skills Knowledge Graph</h1>
-  <div class="stats" id="stats">Nodes: 0 | Edges: 0</div>
+  <h1>System Dependency Graph</h1>
+  <div class="stats" id="stats">Analyzing...</div>
 </div>
 
 <div id="network"></div>
 
 <div id="panel">
-  <h3>Selection Info</h3>
-  <div id="panel-content">Click on a skill node to view details.</div>
+  <h3>Node Inspector</h3>
+  <div id="panel-content">Select a module to view telemetry.</div>
 </div>
 
 <script type="text/javascript">
@@ -124,48 +201,77 @@
 
       const options = {
         nodes: {
-          shape: 'box',
-          margin: 10,
+          shape: 'dot',
+          size: 16,
           font: {
-            color: '#fff',
-            face: 'monospace',
-            size: 14
+            color: '#c5c6c7',
+            face: '"JetBrains Mono", monospace',
+            size: 12,
+            vadjust: -30,
+            strokeWidth: 4,
+            strokeColor: '#0b0c10'
           },
           color: {
-            border: '#2b7ce9',
-            background: '#1b3b63',
+            border: '#45a29e',
+            background: 'rgba(11, 12, 16, 0.8)',
             highlight: {
-              border: '#5194ff',
-              background: '#24528c'
+              border: '#66fcf1',
+              background: 'rgba(102, 252, 241, 0.2)'
+            },
+            hover: {
+              border: '#66fcf1',
+              background: 'rgba(102, 252, 241, 0.1)'
             }
           },
-          borderWidth: 1,
-          shadow: true
+          borderWidth: 2,
+          borderWidthSelected: 3,
+          shadow: {
+            enabled: true,
+            color: 'rgba(102, 252, 241, 0.3)',
+            size: 15,
+            x: 0,
+            y: 0
+          }
         },
         edges: {
-          color: '#555',
+          color: {
+            color: 'rgba(69, 162, 158, 0.4)',
+            highlight: '#66fcf1',
+            hover: '#45a29e'
+          },
+          width: 1.5,
+          selectionWidth: 3,
           arrows: {
-            to: { enabled: true, scaleFactor: 0.8 }
+            to: { enabled: true, scaleFactor: 0.5, type: 'arrow' }
           },
           smooth: {
-            type: 'continuous'
+            type: 'cubicBezier',
+            forceDirection: 'none',
+            roundness: 0.4
           }
         },
         physics: {
           forceAtlas2Based: {
-            gravitationalConstant: -50,
-            centralGravity: 0.01,
-            springLength: 100,
-            springConstant: 0.08
+            gravitationalConstant: -100,
+            centralGravity: 0.005,
+            springLength: 150,
+            springConstant: 0.04,
+            damping: 0.09
           },
-          maxVelocity: 50,
+          maxVelocity: 40,
           solver: 'forceAtlas2Based',
-          timestep: 0.35,
-          stabilization: { iterations: 150 }
+          timestep: 0.3,
+          stabilization: { 
+            enabled: true,
+            iterations: 200,
+            updateInterval: 25
+          }
         },
         interaction: {
           hover: true,
-          tooltipDelay: 200
+          tooltipDelay: 200,
+          hideEdgesOnDrag: true,
+          hideEdgesOnZoom: true
         }
       };
 
@@ -175,17 +281,31 @@
         if (params.nodes.length > 0) {
           const nodeId = params.nodes[0];
           const node = nodes.get(nodeId);
+          const panel = document.getElementById('panel');
+          
+          let tagsHtml = '';
+          if (node.tags && node.tags.length > 0) {
+             tagsHtml = node.tags.map(t => `<span class="tag-chip">${t}</span>`).join('');
+          } else {
+             tagsHtml = '<span class="prop-value dim">N/A</span>';
+          }
+
           panelContent.innerHTML = `
-            <strong>Name:</strong> ${node.id}<br><br>
-            <strong>Description:</strong><br>
-            ${node.description || 'No description available.'}<br><br>
-            <strong>Tags:</strong> ${node.tags ? node.tags.join(', ') : 'None'}
+            <span class="prop-label">Module ID</span>
+            <div class="prop-value">${node.id}</div>
+            
+            <span class="prop-label">Path Info</span>
+            <div class="prop-value">${node.description || 'Unknown'}</div>
+            
+            <span class="prop-label">Classification</span>
+            <div>${tagsHtml}</div>
           `;
+          panel.classList.add('active');
         }
       });
 
       network.on("deselectNode", function (params) {
-        panelContent.innerHTML = 'Click on a skill node to view details.';
+        document.getElementById('panel').classList.remove('active');
       });
 
     } catch (err) {
