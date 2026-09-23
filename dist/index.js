@@ -813,14 +813,14 @@ function runGraph(ctx) {
 		for (const skill of skills) {
 			const skillName = typeof skill === "string" ? skill : skill.name;
 			const content = getSkill(ctx, skillName);
-			const parsed = parseFrontmatter(content);
+			const attrs = parseFrontmatter(content).attributes || {};
 			nodes.push({
 				id: skillName,
 				label: skillName,
-				description: parsed.attributes.description || "",
-				tags: parsed.attributes.tags || []
+				description: attrs.description || "",
+				tags: attrs.tags || []
 			});
-			const requires = parsed.attributes.requires || [];
+			const requires = attrs.requires || [];
 			for (const req of requires) edges.push({
 				from: skillName,
 				to: req
