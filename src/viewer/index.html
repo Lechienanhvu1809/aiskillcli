@@ -163,12 +163,84 @@
       from { opacity: 0; }
       to { opacity: 1; }
     }
+
+    /* Upgrades: Search & Loading */
+    #search-container {
+      margin-left: 20px;
+      display: flex;
+      align-items: center;
+    }
+    #search-box {
+      background: rgba(11, 12, 16, 0.5);
+      border: 1px solid rgba(102, 252, 241, 0.3);
+      border-radius: 6px;
+      color: var(--text-bright);
+      padding: 6px 12px;
+      font-family: 'Outfit', sans-serif;
+      font-size: 13px;
+      width: 200px;
+      outline: none;
+      transition: all 0.3s;
+    }
+    #search-box:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 8px rgba(102, 252, 241, 0.4);
+    }
+    
+    #overlay {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: var(--bg-color);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.5s;
+    }
+    #overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid rgba(102, 252, 241, 0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+    #overlay-text {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent);
+      letter-spacing: 1px;
+    }
+    @keyframes spin {
+      100% { transform: rotate(360deg); }
+    }
+    #error-message {
+      color: #ff4a4a;
+      background: rgba(255, 74, 74, 0.1);
+      padding: 15px 25px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 74, 74, 0.3);
+      display: none;
+    }
   </style>
 </head>
 <body>
 
+<div id="overlay">
+  <div class="spinner" id="spinner"></div>
+  <div id="overlay-text">Initializing Graph Engine...</div>
+  <div id="error-message"></div>
+</div>
+
 <div id="header">
   <h1>System Dependency Graph</h1>
+  <div id="search-container">
+    <input type="text" id="search-box" placeholder="Search module..." autocomplete="off">
+  </div>
   <div class="stats" id="stats">Analyzing...</div>
 </div>
 
@@ -184,18 +256,76 @@
     const container = document.getElementById('network');
     const panelContent = document.getElementById('panel-content');
     const statsDiv = document.getElementById('stats');
+    const searchBox = document.getElementById('search-box');
+    const overlay = document.getElementById('overlay');
+    const spinner = document.getElementById('spinner');
+    const overlayText = document.getElementById('overlay-text');
+    const errorMessage = document.getElementById('error-message');
+
+    // Cờ trạng thái
+    let graphData = null;
+    let network = null;
+    let nodesDataSet = null;
+
+    // --- BẢO MẬT: Hàm tạo DOM an toàn ---
+    function renderPanel(node) {
+      panelContent.innerHTML = ''; // Clear safe
+      
+      const createLabel = (text) => {
+        const span = document.createElement('span');
+        span.className = 'prop-label';
+        span.textContent = text;
+        return span;
+      };
+      
+      const createValue = (text) => {
+        const div = document.createElement('div');
+        div.className = 'prop-value';
+        div.textContent = text || 'Unknown';
+        return div;
+      };
+
+      // Tên Module
+      panelContent.appendChild(createLabel('Module ID'));
+      panelContent.appendChild(createValue(node.id));
+
+      // Đường dẫn / Mô tả
+      panelContent.appendChild(createLabel('Path Info / Description'));
+      panelContent.appendChild(createValue(node.description));
+
+      // Tags
+      panelContent.appendChild(createLabel('Classification'));
+      const tagsContainer = document.createElement('div');
+      if (node.tags && node.tags.length > 0) {
+        node.tags.forEach(t => {
+          const chip = document.createElement('span');
+          chip.className = 'tag-chip';
+          chip.textContent = t;
+          tagsContainer.appendChild(chip);
+        });
+      } else {
+        const na = document.createElement('span');
+        na.className = 'prop-value dim';
+        na.textContent = 'N/A';
+        tagsContainer.appendChild(na);
+      }
+      panelContent.appendChild(tagsContainer);
+    }
 
     try {
       const response = await fetch('/api/graph');
-      const data = await fetch('/api/graph').then(res => res.json());
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status} ${response.statusText}`);
+      }
+      const data = await response.json();
 
-      const nodes = new vis.DataSet(data.nodes);
+      nodesDataSet = new vis.DataSet(data.nodes);
       const edges = new vis.DataSet(data.edges);
 
-      statsDiv.textContent = `Nodes: ${nodes.length} | Edges: ${edges.length}`;
+      statsDiv.textContent = `Nodes: ${nodesDataSet.length} | Edges: ${edges.length}`;
 
-      const graphData = {
-        nodes: nodes,
+      graphData = {
+        nodes: nodesDataSet,
         edges: edges
       };
 
@@ -275,32 +405,36 @@
         }
       };
 
-      const network = new vis.Network(container, graphData, options);
+      network = new vis.Network(container, graphData, options);
+
+      // --- HIỆU NĂNG: Đóng băng vật lý sau khi ổn định ---
+      network.on("stabilizationIterationsDone", function () {
+        network.setOptions({ physics: { enabled: false } });
+        // Tắt màn hình loading
+        overlay.classList.add('hidden');
+      });
+
+      // Bật lại vật lý khi kéo
+      network.on("dragStart", function (params) {
+        if (params.nodes.length > 0) {
+          network.setOptions({ physics: { enabled: true } });
+        }
+      });
+      network.on("dragEnd", function (params) {
+        if (params.nodes.length > 0) {
+          // Cho physics chạy thêm một chút rồi tắt để không tốn CPU
+          setTimeout(() => {
+             network.setOptions({ physics: { enabled: false } });
+          }, 2000);
+        }
+      });
 
       network.on("selectNode", function (params) {
         if (params.nodes.length > 0) {
           const nodeId = params.nodes[0];
-          const node = nodes.get(nodeId);
-          const panel = document.getElementById('panel');
-          
-          let tagsHtml = '';
-          if (node.tags && node.tags.length > 0) {
-             tagsHtml = node.tags.map(t => `<span class="tag-chip">${t}</span>`).join('');
-          } else {
-             tagsHtml = '<span class="prop-value dim">N/A</span>';
-          }
-
-          panelContent.innerHTML = `
-            <span class="prop-label">Module ID</span>
-            <div class="prop-value">${node.id}</div>
-            
-            <span class="prop-label">Path Info</span>
-            <div class="prop-value">${node.description || 'Unknown'}</div>
-            
-            <span class="prop-label">Classification</span>
-            <div>${tagsHtml}</div>
-          `;
-          panel.classList.add('active');
+          const node = nodesDataSet.get(nodeId);
+          renderPanel(node);
+          document.getElementById('panel').classList.add('active');
         }
       });
 
@@ -308,9 +442,55 @@
         document.getElementById('panel').classList.remove('active');
       });
 
+      // --- TƯƠNG TÁC: Xử lý Tìm kiếm (Search) ---
+      searchBox.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase();
+        if (!query) {
+          network.unselectAll();
+          document.getElementById('panel').classList.remove('active');
+          return;
+        }
+
+        const allNodes = nodesDataSet.get();
+        const matched = allNodes.filter(n => 
+          n.id.toLowerCase().includes(query) || 
+          (n.tags && n.tags.some(t => t.toLowerCase().includes(query)))
+        );
+
+        if (matched.length > 0) {
+          // Focus vào Node đầu tiên tìm được
+          const targetId = matched[0].id;
+          network.selectNodes([targetId]);
+          network.focus(targetId, {
+            scale: 1.2,
+            animation: {
+              duration: 500,
+              easingFunction: 'easeInOutQuad'
+            }
+          });
+          renderPanel(matched[0]);
+          document.getElementById('panel').classList.add('active');
+        } else {
+          network.unselectAll();
+          document.getElementById('panel').classList.remove('active');
+        }
+      });
+
+      // --- TƯƠNG TÁC: Phím Escape để thoát ---
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          network.unselectAll();
+          document.getElementById('panel').classList.remove('active');
+          searchBox.blur();
+        }
+      });
+
     } catch (err) {
       console.error(err);
-      panelContent.innerHTML = `<span style="color: #ff5555;">Error loading graph data.</span>`;
+      spinner.style.display = 'none';
+      overlayText.style.display = 'none';
+      errorMessage.style.display = 'block';
+      errorMessage.textContent = 'Lỗi tải Graph: ' + err.message;
     }
   });
 </script>
