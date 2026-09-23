@@ -22,6 +22,7 @@
   "scripts": {
     "build": "tsdown && node -e \"const fs=require('fs'); fs.mkdirSync('dist/viewer', {recursive: true}); fs.copyFileSync('src/viewer/index.html', 'dist/viewer/index.html')\"",
     "dev": "tsx src/index.ts",
+    "dev:graph": "tsx scripts/dev-graph.ts",
     "mcp": "tsx src/mcp.ts",
     "test": "vitest run",
     "test:watch": "vitest",
