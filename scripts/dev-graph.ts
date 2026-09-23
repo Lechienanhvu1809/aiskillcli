@@ -7,92 +7,147 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Thư mục gốc chứa source code
-const SRC_DIR = path.join(__dirname, "..", "src");
+const ROOT_DIR = path.join(__dirname, "..");
+const EXCLUDE_DIRS = ["node_modules", "dist", ".git", ".agents", "coverage"];
 
-// Thu thập đệ quy tất cả các file .ts
-function getAllTsFiles(dir: string, fileList: string[] = []): string[] {
+function getAllFiles(dir: string, fileList: string[] = []): string[] {
   const files = fs.readdirSync(dir);
   for (const file of files) {
     const filePath = path.join(dir, file);
-    if (fs.statSync(filePath).isDirectory()) {
-      getAllTsFiles(filePath, fileList);
-    } else if (file.endsWith(".ts")) {
-      fileList.push(filePath);
+    const stat = fs.statSync(filePath);
+    if (stat.isDirectory()) {
+      if (!EXCLUDE_DIRS.includes(file)) {
+        getAllFiles(filePath, fileList);
+      }
+    } else {
+      const ext = path.extname(file);
+      if ([".ts", ".js", ".json", ".md", ".html"].includes(ext)) {
+        fileList.push(filePath);
+      }
     }
   }
   return fileList;
 }
 
-// Chuyển đường dẫn absolute thành dạng tương đối (ví dụ: commands/add.ts)
 function getRelativeId(absolutePath: string): string {
-  // Thay thế .js thành .ts để map đúng tên file trong src (vì import dùng .js)
-  let relPath = path.relative(SRC_DIR, absolutePath).replace(/\\/g, "/");
-  if (relPath.endsWith(".js")) {
-    relPath = relPath.replace(/\.js$/, ".ts");
+  return path.relative(ROOT_DIR, absolutePath).replace(/\\/g, "/");
+}
+
+function analyzeFile(filePath: string, content: string): string {
+  const ext = path.extname(filePath);
+  let desc = "";
+
+  try {
+    const stats = fs.statSync(filePath);
+    const sizeKB = (stats.size / 1024).toFixed(1);
+    const loc = content.split("\n").length;
+    desc += `[Stats]\nSize: ${sizeKB} KB\nLines: ${loc}\n\n`;
+
+    if (ext === ".ts" || ext === ".js") {
+      const jsdocMatch = content.match(/\/\*\*([\s\S]*?)\*\//);
+      if (jsdocMatch) {
+        let cleanDoc = jsdocMatch[1].replace(/\n\s*\*/g, "\n").trim();
+        desc += `[Description]\n${cleanDoc}\n\n`;
+      }
+      const exports = [];
+      const exportRegex = /export\s+(?:async\s+)?(?:default\s+)?(?:function|class|const|let|var|interface|type)\s+([a-zA-Z0-9_]+)/g;
+      let match;
+      while ((match = exportRegex.exec(content)) !== null) {
+        exports.push(match[1]);
+      }
+      if (exports.length > 0) {
+        desc += `[Exports]\n${exports.join(", ")}\n\n`;
+      }
+    } else if (ext === ".json") {
+      if (path.basename(filePath) === "package.json") {
+        const pkg = JSON.parse(content);
+        desc += `[NPM Package]\nName: ${pkg.name}\nVersion: ${pkg.version}\nDesc: ${pkg.description}\n\n`;
+        if (pkg.scripts) {
+          desc += `[Scripts]\n${Object.keys(pkg.scripts).map(k => `- ${k}: ${pkg.scripts[k]}`).join("\n")}\n\n`;
+        }
+      }
+    } else if (ext === ".md") {
+      const heading = content.match(/^#\s+(.*)/m);
+      if (heading) {
+        desc += `[Heading]\n${heading[1]}\n\n`;
+      }
+    }
+  } catch (e) {
+    desc += "Error analyzing file.";
   }
-  return relPath;
+
+  return desc.trim() || "No specific metadata extracted.";
 }
 
 export function buildDependencyGraph() {
-  const files = getAllTsFiles(SRC_DIR);
+  const files = getAllFiles(ROOT_DIR);
   const nodes = new Map<string, any>();
   const edges: { from: string; to: string }[] = [];
 
-  const importRegex = /import\s+(?:type\s+)?.*?from\s+["'](.*?)["']/g;
-  const exportRegex = /export\s+(?:type\s+)?.*?from\s+["'](.*?)["']/g;
-  
-  // Regex để tìm các import như: import * as foo from "./foo.js" hoặc import { a } from "./a.js"
-  // hoặc import "./a.js" (side effect)
   const allImportsRegex = /(?:import|export)\s+(?:type\s+)?[^"']*?from\s+["']([^"']+)["']|import\s+["']([^"']+)["']/g;
 
+  // Xây dựng Node
   for (const file of files) {
     const id = getRelativeId(file);
     const content = fs.readFileSync(file, "utf8");
+    const description = analyzeFile(file, content);
     
-    // Tạo Node
-    if (!nodes.has(id)) {
-      const folder = path.dirname(id);
-      nodes.set(id, {
-        id: id,
-        label: path.basename(id),
-        description: `Source file: ${id}`,
-        group: folder === "." ? "root" : folder,
-        tags: [folder]
-      });
-    }
+    let folder = path.dirname(id);
+    if (folder === ".") folder = "root";
 
-    // Tìm các import/export
-    let match;
-    while ((match = allImportsRegex.exec(content)) !== null) {
-      // match[1] là import ... from "path"
-      // match[2] là import "path"
-      const importPath = match[1] || match[2];
-      if (importPath && importPath.startsWith(".")) {
-        // Tính toán đường dẫn tuyệt đối của file được import
-        const dir = path.dirname(file);
-        const resolvedAbsolute = path.resolve(dir, importPath);
-        
-        let targetId = getRelativeId(resolvedAbsolute);
-        
-        // Tạo edge
-        edges.push({
-          from: id,
-          to: targetId
-        });
-        
-        // Đảm bảo node target cũng tồn tại (dù đôi khi nó có thể là index.ts hoặc đuôi js)
-        if (!nodes.has(targetId)) {
-          const folder = path.dirname(targetId);
-          nodes.set(targetId, {
-            id: targetId,
-            label: path.basename(targetId),
-            description: `Source file: ${targetId}`,
-            group: folder === "." ? "root" : folder,
-            tags: [folder]
-          });
+    nodes.set(id, {
+      id: id,
+      label: path.basename(id),
+      description: description,
+      group: folder,
+      tags: [folder]
+    });
+  }
+
+  // Xây dựng Edges
+  for (const file of files) {
+    const id = getRelativeId(file);
+    const content = fs.readFileSync(file, "utf8");
+    const ext = path.extname(file);
+
+    if (ext === ".ts" || ext === ".js") {
+      let match;
+      while ((match = allImportsRegex.exec(content)) !== null) {
+        let importPath = match[1] || match[2];
+        if (importPath && importPath.startsWith(".")) {
+          // Xử lý .js -> .ts mapping
+          if (importPath.endsWith(".js")) {
+            importPath = importPath.replace(/\.js$/, ".ts");
+          }
+          
+          const dir = path.dirname(file);
+          const resolvedAbsolute = path.resolve(dir, importPath);
+          const targetId = getRelativeId(resolvedAbsolute);
+          
+          if (nodes.has(targetId)) {
+            edges.push({ from: id, to: targetId });
+          }
         }
       }
+    }
+
+    // Heuristic edges (package.json scripts)
+    if (id === "package.json") {
+      try {
+        const pkg = JSON.parse(content);
+        if (pkg.scripts) {
+          Object.values(pkg.scripts).forEach((script: any) => {
+            if (typeof script === "string") {
+              if (script.includes("scripts/dev-graph.ts")) {
+                edges.push({ from: id, to: "scripts/dev-graph.ts" });
+              }
+              if (script.includes("src/index.ts") || script.includes("dist/")) {
+                edges.push({ from: id, to: "src/index.ts" });
+              }
+            }
+          });
+        }
+      } catch (e) {}
     }
   }
 
@@ -118,8 +173,7 @@ function startServer() {
       const viewerPath = path.join(__dirname, "..", "src", "viewer", "index.html");
       if (fs.existsSync(viewerPath)) {
         let html = fs.readFileSync(viewerPath, "utf8");
-        // Đổi title một chút để phân biệt
-        html = html.replace("AI Skills Knowledge Graph", "Source Code Dependency Graph");
+        html = html.replace("System Dependency Graph", "System Source Graph");
         res.writeHead(200, { "Content-Type": "text/html" });
         res.end(html);
       } else {
