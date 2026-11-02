@@ -1,24 +1,30 @@
+import { SkillApplicationService } from "../application/SkillApplicationService.js";
 import type { CliContext } from "../context.js";
+import { FileSystemSkillRepository } from "../infrastructure/FileSystemSkillRepository.js";
+import { trackUsage } from "../policies/analytics.js";
 import { syncPull } from "../policies/git-sync.js";
 import { validateSkillName } from "../policies/name-validation.js";
-import { getSkill } from "../policies/skill-registry.js";
-import { parseFrontmatter } from "../utils/frontmatter.js";
+import { formatSkillAsMarkdown } from "../utils/frontmatter.js";
 import { handleError } from "../utils/output.js";
-import { trackUsage } from "../policies/analytics.js";
 
-export function runGet(
+export async function runGet(
   ctx: CliContext,
   rawName: string,
   options: { noSync?: boolean; recursive?: boolean } = {},
-): void {
+): Promise<void> {
   try {
     const name = validateSkillName(rawName);
     if (!options.noSync) {
       syncPull(ctx);
     }
 
+    const repo = new FileSystemSkillRepository(ctx.skillsDir);
+    const service = new SkillApplicationService(repo);
+
     if (!options.recursive) {
-      const content = getSkill(ctx, name);
+      const skill = await service.getSkill(name);
+      if (!skill) throw new Error(`Không tìm thấy kỹ năng: ${name}`);
+      const content = formatSkillAsMarkdown(skill);
       trackUsage(ctx, name);
       console.log(content);
       return;
@@ -29,34 +35,37 @@ export function runGet(
     const maxDepth = 2;
     const output: string[] = [];
 
-    function fetchRecursive(currentName: string, depth: number) {
+    async function fetchRecursive(currentName: string, depth: number) {
       if (visited.has(currentName) || depth > maxDepth) return;
       visited.add(currentName);
 
       try {
         const validName = validateSkillName(currentName);
-        const content = getSkill(ctx, validName);
+        const skill = await service.getSkill(validName);
+        if (!skill) throw new Error("Not found");
+
+        const content = formatSkillAsMarkdown(skill);
         trackUsage(ctx, validName);
 
         output.push(`\n<!-- ===== BẮT ĐẦU SKILL: ${validName} ===== -->\n`);
         output.push(content);
         output.push(`\n<!-- ===== KẾT THÚC SKILL: ${validName} ===== -->\n`);
 
-        const frontmatter = parseFrontmatter(content);
-        if (frontmatter.requires && Array.isArray(frontmatter.requires)) {
-          for (const req of frontmatter.requires) {
-            fetchRecursive(req, depth + 1);
+        const reqs = skill.getRequirements();
+        if (reqs && reqs.length > 0) {
+          for (const req of reqs) {
+            await fetchRecursive(req, depth + 1);
           }
         }
-      } catch (e: any) {
-        output.push(`\n<!-- [LỖI] Không thể lấy phụ thuộc: ${currentName} (${e.message}) -->\n`);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        output.push(`\n<!-- [LỖI] Không thể lấy phụ thuộc: ${currentName} (${msg}) -->\n`);
       }
     }
 
-    fetchRecursive(name, 0);
+    await fetchRecursive(name, 0);
     console.log(output.join(""));
   } catch (err) {
     handleError(err);
   }
 }
-

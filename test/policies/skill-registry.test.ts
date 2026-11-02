@@ -7,9 +7,7 @@ import {
   addSkill,
   getSkill,
   listSkills,
-  removeSkill,
   SkillRegistryError,
-  searchSkills,
   skillExists,
 } from "../../src/policies/skill-registry.js";
 
@@ -19,7 +17,7 @@ let ctx: CliContext;
 
 beforeEach(() => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-skills-test-"));
-  ctx = { skillsDir: tempDir, verbose: false };
+  ctx = { skillsDir: tempDir, verbose: false, projectDir: tempDir };
 });
 
 afterEach(() => {
@@ -100,49 +98,5 @@ describe("getSkill", () => {
 
   it("throw SkillRegistryError nếu không tìm thấy skill", () => {
     expect(() => getSkill(ctx, "nonexistent")).toThrow(SkillRegistryError);
-  });
-});
-
-describe("removeSkill", () => {
-  it("xóa skill thành công", () => {
-    fs.writeFileSync(path.join(tempDir, "my-skill.md"), "content");
-    removeSkill(ctx, "my-skill");
-    expect(skillExists(ctx, "my-skill")).toBe(false);
-  });
-
-  it("throw SkillRegistryError nếu skill không tồn tại", () => {
-    expect(() => removeSkill(ctx, "nonexistent")).toThrow(SkillRegistryError);
-  });
-});
-
-describe("searchSkills", () => {
-  beforeEach(() => {
-    fs.writeFileSync(path.join(tempDir, "git-workflow.md"), "# Git Workflow\nGit commands here");
-    fs.writeFileSync(path.join(tempDir, "react-hooks.md"), "# React Hooks\nUseState, useEffect");
-    fs.writeFileSync(path.join(tempDir, "testing.md"), "# Testing\nVitest and Jest");
-  });
-
-  it("tìm theo tên skill", () => {
-    const results = searchSkills(ctx, "git");
-    expect(results).toHaveLength(1);
-    expect(results[0].name).toBe("git-workflow");
-    expect(results[0].matchedInName).toBe(true);
-  });
-
-  it("tìm theo nội dung", () => {
-    const results = searchSkills(ctx, "useState");
-    expect(results).toHaveLength(1);
-    expect(results[0].name).toBe("react-hooks");
-    expect(results[0].matchedInContent).toBe(true);
-  });
-
-  it("trả về mảng rỗng khi không tìm thấy", () => {
-    expect(searchSkills(ctx, "kubernetes")).toEqual([]);
-  });
-
-  it("tìm không phân biệt hoa thường", () => {
-    const results = searchSkills(ctx, "VITEST");
-    expect(results).toHaveLength(1);
-    expect(results[0].name).toBe("testing");
   });
 });

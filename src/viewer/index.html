@@ -409,19 +409,19 @@
       network = new vis.Network(container, graphData, options);
 
       // --- HIỆU NĂNG: Đóng băng vật lý sau khi ổn định ---
-      network.on("stabilizationIterationsDone", function () {
+      network.on("stabilizationIterationsDone", () => {
         network.setOptions({ physics: { enabled: false } });
         // Tắt màn hình loading
         overlay.classList.add('hidden');
       });
 
       // Bật lại vật lý khi kéo
-      network.on("dragStart", function (params) {
+      network.on("dragStart", (params) => {
         if (params.nodes.length > 0) {
           network.setOptions({ physics: { enabled: true } });
         }
       });
-      network.on("dragEnd", function (params) {
+      network.on("dragEnd", (params) => {
         if (params.nodes.length > 0) {
           // Cho physics chạy thêm một chút rồi tắt để không tốn CPU
           setTimeout(() => {
@@ -430,7 +430,7 @@
         }
       });
 
-      network.on("selectNode", function (params) {
+      network.on("selectNode", (params) => {
         if (params.nodes.length > 0) {
           const nodeId = params.nodes[0];
           const node = nodesDataSet.get(nodeId);
@@ -439,7 +439,7 @@
         }
       });
 
-      network.on("deselectNode", function (params) {
+      network.on("deselectNode", (params) => {
         document.getElementById('panel').classList.remove('active');
       });
 
@@ -455,7 +455,7 @@
         const allNodes = nodesDataSet.get();
         const matched = allNodes.filter(n => 
           n.id.toLowerCase().includes(query) || 
-          (n.tags && n.tags.some(t => t.toLowerCase().includes(query)))
+          (n.tags?.some(t => t.toLowerCase().includes(query)))
         );
 
         if (matched.length > 0) {
@@ -491,7 +491,7 @@
       spinner.style.display = 'none';
       overlayText.style.display = 'none';
       errorMessage.style.display = 'block';
-      errorMessage.textContent = 'Lỗi tải Graph: ' + err.message;
+      errorMessage.textContent = `Lỗi tải Graph: ${err.message}`;
     }
   });
 </script>

@@ -2,14 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runTagAdd, runTagList, runTagRemove, runTagRename } from "../../src/commands/tag.js";
 import type { CliContext } from "../../src/context.js";
-import { addSkill } from "../../src/policies/skill-registry.js";
-import {
-  runTagAdd,
-  runTagList,
-  runTagRemove,
-  runTagRename,
-} from "../../src/commands/tag.js";
 import { getTags } from "../../src/utils/frontmatter.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -73,9 +67,9 @@ afterEach(() => {
 // ─── tag add ──────────────────────────────────────────────────────────────────
 
 describe("runTagAdd", () => {
-  it("thêm tags mới vào skill đã có frontmatter", () => {
+  it("thêm tags mới vào skill đã có frontmatter", async () => {
     addTestSkill(ctx, "my-skill", SKILL_WITH_TAGS);
-    runTagAdd(ctx, "my-skill", ["typescript"]);
+    await runTagAdd(ctx, "my-skill", ["typescript"]);
     const content = readSkillContent(ctx, "my-skill");
     const tags = getTags(content);
     expect(tags).toContain("typescript");
@@ -83,26 +77,26 @@ describe("runTagAdd", () => {
     expect(tags).toContain("web");
   });
 
-  it("thêm tags vào skill không có tags", () => {
+  it("thêm tags vào skill không có tags", async () => {
     addTestSkill(ctx, "clean-skill", SKILL_NO_TAGS);
-    runTagAdd(ctx, "clean-skill", ["backend", "node"]);
+    await runTagAdd(ctx, "clean-skill", ["backend", "node"]);
     const content = readSkillContent(ctx, "clean-skill");
     const tags = getTags(content);
     expect(tags).toContain("backend");
     expect(tags).toContain("node");
   });
 
-  it("thêm tags vào skill không có frontmatter", () => {
+  it("thêm tags vào skill không có frontmatter", async () => {
     addTestSkill(ctx, "bare-skill", SKILL_NO_FRONTMATTER);
-    runTagAdd(ctx, "bare-skill", ["utils"]);
+    await runTagAdd(ctx, "bare-skill", ["utils"]);
     const content = readSkillContent(ctx, "bare-skill");
     const tags = getTags(content);
     expect(tags).toContain("utils");
   });
 
-  it("không duplicate tags đã tồn tại", () => {
+  it("không duplicate tags đã tồn tại", async () => {
     addTestSkill(ctx, "my-skill", SKILL_WITH_TAGS);
-    runTagAdd(ctx, "my-skill", ["frontend", "css"]); // "frontend" đã có
+    await runTagAdd(ctx, "my-skill", ["frontend", "css"]); // "frontend" đã có
     const content = readSkillContent(ctx, "my-skill");
     const tags = getTags(content);
     const frontendCount = tags.filter((t) => t === "frontend").length;
@@ -110,85 +104,89 @@ describe("runTagAdd", () => {
     expect(tags).toContain("css");
   });
 
-  it("case-insensitive deduplication", () => {
+  it("case-insensitive deduplication", async () => {
     addTestSkill(ctx, "my-skill", SKILL_WITH_TAGS);
-    runTagAdd(ctx, "my-skill", ["FRONTEND"]); // "frontend" đã có dưới dạng lowercase
+    await runTagAdd(ctx, "my-skill", ["FRONTEND"]); // "frontend" đã có dưới dạng lowercase
     const content = readSkillContent(ctx, "my-skill");
     const tags = getTags(content);
     const frontendVariants = tags.filter((t) => t.toLowerCase() === "frontend");
     expect(frontendVariants).toHaveLength(1);
   });
 
-  it("không thay đổi file khi skill không tồn tại — gọi fatal", () => {
+  it("không thay đổi file khi skill không tồn tại — gọi fatal", async () => {
     // Kiểm tra rằng skill không tồn tại thì sẽ throw hoặc không ghi file mới
-    expect(() => runTagAdd(ctx, "nonexistent", ["tag"])).toThrow();
+    await expect(runTagAdd(ctx, "nonexistent", ["tag"])).rejects.toThrow();
   });
 });
 
 // ─── tag remove ───────────────────────────────────────────────────────────────
 
 describe("runTagRemove", () => {
-  it("xóa tag tồn tại", () => {
+  it("xóa tag tồn tại", async () => {
     addTestSkill(ctx, "my-skill", SKILL_WITH_TAGS);
-    runTagRemove(ctx, "my-skill", "frontend");
+    await runTagRemove(ctx, "my-skill", "frontend");
     const content = readSkillContent(ctx, "my-skill");
     const tags = getTags(content);
     expect(tags).not.toContain("frontend");
     expect(tags).toContain("web"); // tag khác vẫn còn
   });
 
-  it("case-insensitive: xóa tag với case khác", () => {
+  it("case-insensitive: xóa tag với case khác", async () => {
     addTestSkill(ctx, "my-skill", SKILL_WITH_TAGS);
-    runTagRemove(ctx, "my-skill", "FRONTEND");
+    await runTagRemove(ctx, "my-skill", "FRONTEND");
     const content = readSkillContent(ctx, "my-skill");
     const tags = getTags(content);
     expect(tags.map((t) => t.toLowerCase())).not.toContain("frontend");
   });
 
-  it("không thay đổi file khi tag không tồn tại", () => {
+  it("không thay đổi file khi tag không tồn tại", async () => {
     addTestSkill(ctx, "my-skill", SKILL_WITH_TAGS);
     const before = readSkillContent(ctx, "my-skill");
-    runTagRemove(ctx, "my-skill", "nonexistent-tag");
+    await runTagRemove(ctx, "my-skill", "nonexistent-tag");
     const after = readSkillContent(ctx, "my-skill");
     expect(getTags(after)).toEqual(getTags(before));
   });
 
-  it("throw khi skill không tồn tại", () => {
-    expect(() => runTagRemove(ctx, "ghost-skill", "tag")).toThrow();
+  it("throw khi skill không tồn tại", async () => {
+    await expect(runTagRemove(ctx, "ghost-skill", "tag")).rejects.toThrow();
   });
 });
 
 // ─── tag list ─────────────────────────────────────────────────────────────────
 
 describe("runTagList", () => {
-  it("không throw khi kho trống", () => {
-    expect(() => runTagList(ctx)).not.toThrow();
+  it("không throw khi kho trống", async () => {
+    await expect(runTagList(ctx)).resolves.not.toThrow();
   });
 
-  it("không throw với nhiều skills có tags", () => {
+  it("không throw với nhiều skills có tags", async () => {
     addTestSkill(ctx, "skill-a", SKILL_WITH_TAGS); // frontend, web
-    addTestSkill(ctx, "skill-b", SKILL_NO_TAGS);   // không có tags
-    expect(() => runTagList(ctx)).not.toThrow();
+    addTestSkill(ctx, "skill-b", SKILL_NO_TAGS); // không có tags
+    await expect(runTagList(ctx)).resolves.not.toThrow();
   });
 
-  it("không throw khi tất cả skills không có tags", () => {
+  it("không throw khi tất cả skills không có tags", async () => {
     addTestSkill(ctx, "bare", SKILL_NO_FRONTMATTER);
-    expect(() => runTagList(ctx)).not.toThrow();
+    await expect(runTagList(ctx)).resolves.not.toThrow();
   });
 });
 
 // ─── tag rename ───────────────────────────────────────────────────────────────
 
 describe("runTagRename", () => {
-  it("đổi tên tag trong tất cả skills có chứa tag đó", () => {
+  it("đổi tên tag trong tất cả skills có chứa tag đó", async () => {
     addTestSkill(ctx, "skill-a", SKILL_WITH_TAGS); // frontend, web
-    addTestSkill(ctx, "skill-b", `---
+    addTestSkill(
+      ctx,
+      "skill-b",
+      `---
 name: skill-b
 tags: [frontend, css]
 ---
 # B
-`);
-    runTagRename(ctx, "frontend", "ui");
+`,
+    );
+    await runTagRename(ctx, "frontend", "ui");
 
     const tagsA = getTags(readSkillContent(ctx, "skill-a"));
     const tagsB = getTags(readSkillContent(ctx, "skill-b"));
@@ -199,26 +197,26 @@ tags: [frontend, css]
     expect(tagsB).not.toContain("frontend");
   });
 
-  it("không thay đổi skills không chứa tag cũ", () => {
+  it("không thay đổi skills không chứa tag cũ", async () => {
     addTestSkill(ctx, "my-skill", SKILL_WITH_TAGS); // frontend, web
     addTestSkill(ctx, "other-skill", SKILL_NO_TAGS); // không có tag nào
-    runTagRename(ctx, "frontend", "ui");
+    await runTagRename(ctx, "frontend", "ui");
 
     const otherContent = readSkillContent(ctx, "other-skill");
     const otherTags = getTags(otherContent);
     expect(otherTags).toHaveLength(0);
   });
 
-  it("case-insensitive rename", () => {
+  it("case-insensitive rename", async () => {
     addTestSkill(ctx, "my-skill", SKILL_WITH_TAGS); // frontend, web
-    runTagRename(ctx, "FRONTEND", "ui");
+    await runTagRename(ctx, "FRONTEND", "ui");
     const tags = getTags(readSkillContent(ctx, "my-skill"));
     expect(tags).toContain("ui");
     expect(tags.map((t) => t.toLowerCase())).not.toContain("frontend");
   });
 
-  it("không throw khi tag cũ không tồn tại trong bất kỳ skill nào", () => {
+  it("không throw khi tag cũ không tồn tại trong bất kỳ skill nào", async () => {
     addTestSkill(ctx, "my-skill", SKILL_WITH_TAGS);
-    expect(() => runTagRename(ctx, "nonexistent-tag", "new-tag")).not.toThrow();
+    await expect(runTagRename(ctx, "nonexistent-tag", "new-tag")).resolves.not.toThrow();
   });
 });

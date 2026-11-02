@@ -16,14 +16,14 @@ function isGitRepo(ctx: CliContext): boolean {
 function runGit(ctx: CliContext, args: string[]): boolean {
   try {
     if (!isGitRepo(ctx)) return false;
-    execFileSync("git", args, { 
-      cwd: ctx.skillsDir, 
+    execFileSync("git", args, {
+      cwd: ctx.skillsDir,
       stdio: "ignore",
       timeout: 15000,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     });
     return true;
-  } catch (err: any) {
+  } catch (_err: unknown) {
     if (args.includes("--rebase")) {
       try {
         execFileSync("git", ["rebase", "--abort"], { cwd: ctx.skillsDir, stdio: "ignore" });
@@ -51,7 +51,7 @@ export function initSync(ctx: CliContext, remoteUrl: string): { ok: boolean; mes
   if (!fs.existsSync(ctx.skillsDir)) {
     fs.mkdirSync(ctx.skillsDir, { recursive: true });
   }
-  
+
   const safeUrl = remoteUrl.replace(/https?:\/\/[^@]+@/, "https://***@");
   try {
     if (!isGitRepo(ctx)) {
@@ -61,9 +61,14 @@ export function initSync(ctx: CliContext, remoteUrl: string): { ok: boolean; mes
           cwd: ctx.skillsDir,
           stdio: "pipe",
         });
-      } catch (err: any) {
-        if (err.stderr && err.stderr.toString().includes("Please tell me who you are")) {
-          return { ok: false, message: "Lỗi Git: Bạn chưa thiết lập danh tính Git. Hãy chạy `git config --global user.name 'Tên của bạn'` và `git config --global user.email 'Email'` trước." };
+      } catch (err: unknown) {
+        const execErr = err as { stderr?: { toString(): string } };
+        if (execErr.stderr?.toString().includes("Please tell me who you are")) {
+          return {
+            ok: false,
+            message:
+              "Lỗi Git: Bạn chưa thiết lập danh tính Git. Hãy chạy `git config --global user.name 'Tên của bạn'` và `git config --global user.email 'Email'` trước.",
+          };
         }
       }
     }
@@ -89,7 +94,7 @@ export function initSync(ctx: CliContext, remoteUrl: string): { ok: boolean; mes
         cwd: ctx.skillsDir,
         stdio: "ignore",
         timeout: 15000,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
       });
       return { ok: true, message: `Thiết lập Git Sync thành công với remote: ${safeUrl}` };
     } catch {

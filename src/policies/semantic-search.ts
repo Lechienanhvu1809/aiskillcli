@@ -11,26 +11,28 @@ export interface SemanticResult {
   score: number;
 }
 
-class VectorDatabase {
-  static pipelineInstance: any = null;
+// Module-level singleton thay vì class chỉ có static members
+let pipelineInstance: unknown = null;
 
-  static async getPipeline() {
-    if (!this.pipelineInstance) {
-      // Create feature extraction pipeline
-      // This will download the model to cache on first run (around ~22MB)
-      this.pipelineInstance = await pipeline("feature-extraction", MODEL_ID, {
-        quantized: true,
-      });
-    }
-    return this.pipelineInstance;
+async function getPipeline(): Promise<unknown> {
+  if (!pipelineInstance) {
+    // Create feature extraction pipeline
+    // This will download the model to cache on first run (around ~22MB)
+    pipelineInstance = await pipeline("feature-extraction", MODEL_ID, {
+      quantized: true,
+    });
   }
+  return pipelineInstance;
 }
 
 /**
  * Tạo vector 384 chiều từ văn bản
  */
 export async function embedText(text: string): Promise<number[]> {
-  const extractor = await VectorDatabase.getPipeline();
+  const extractor = (await getPipeline()) as (
+    text: string,
+    opts: { pooling: string; normalize: boolean },
+  ) => Promise<{ data: ArrayLike<number> }>;
   // Generate embeddings, applying mean pooling and normalization
   const output = await extractor(text, { pooling: "mean", normalize: true });
   return Array.from(output.data);
@@ -101,16 +103,16 @@ export async function searchSemantic(
 ): Promise<SemanticResult[]> {
   const queryVector = await embedText(query);
   const vectors = loadVectors(ctx);
-  
+
   const results: SemanticResult[] = [];
-  
+
   for (const [name, vector] of Object.entries(vectors)) {
     const score = cosineSimilarity(queryVector, vector);
     if (score >= threshold) {
       results.push({ name, score });
     }
   }
-  
+
   // Sort descending by score
   return results.sort((a, b) => b.score - a.score);
 }

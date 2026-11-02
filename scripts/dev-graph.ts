@@ -1,8 +1,8 @@
 import fs from "node:fs";
-import path from "node:path";
 import http from "node:http";
-import pc from "picocolors";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
+import pc from "picocolors";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,11 +46,12 @@ function analyzeFile(filePath: string, content: string): string {
     if (ext === ".ts" || ext === ".js") {
       const jsdocMatch = content.match(/\/\*\*([\s\S]*?)\*\//);
       if (jsdocMatch) {
-        let cleanDoc = jsdocMatch[1].replace(/\n\s*\*/g, "\n").trim();
+        const cleanDoc = jsdocMatch[1].replace(/\n\s*\*/g, "\n").trim();
         desc += `[Description]\n${cleanDoc}\n\n`;
       }
       const exports = [];
-      const exportRegex = /export\s+(?:async\s+)?(?:default\s+)?(?:function|class|const|let|var|interface|type)\s+([a-zA-Z0-9_]+)/g;
+      const exportRegex =
+        /export\s+(?:async\s+)?(?:default\s+)?(?:function|class|const|let|var|interface|type)\s+([a-zA-Z0-9_]+)/g;
       let match;
       while ((match = exportRegex.exec(content)) !== null) {
         exports.push(match[1]);
@@ -63,7 +64,9 @@ function analyzeFile(filePath: string, content: string): string {
         const pkg = JSON.parse(content);
         desc += `[NPM Package]\nName: ${pkg.name}\nVersion: ${pkg.version}\nDesc: ${pkg.description}\n\n`;
         if (pkg.scripts) {
-          desc += `[Scripts]\n${Object.keys(pkg.scripts).map(k => `- ${k}: ${pkg.scripts[k]}`).join("\n")}\n\n`;
+          desc += `[Scripts]\n${Object.keys(pkg.scripts)
+            .map((k) => `- ${k}: ${pkg.scripts[k]}`)
+            .join("\n")}\n\n`;
         }
       }
     } else if (ext === ".md") {
@@ -72,7 +75,7 @@ function analyzeFile(filePath: string, content: string): string {
         desc += `[Heading]\n${heading[1]}\n\n`;
       }
     }
-  } catch (e) {
+  } catch (_e) {
     desc += "Error analyzing file.";
   }
 
@@ -84,14 +87,15 @@ export function buildDependencyGraph() {
   const nodes = new Map<string, any>();
   const edges: { from: string; to: string }[] = [];
 
-  const allImportsRegex = /(?:import|export)\s+(?:type\s+)?[^"']*?from\s+["']([^"']+)["']|import\s+["']([^"']+)["']/g;
+  const allImportsRegex =
+    /(?:import|export)\s+(?:type\s+)?[^"']*?from\s+["']([^"']+)["']|import\s+["']([^"']+)["']/g;
 
   // Xây dựng Node
   for (const file of files) {
     const id = getRelativeId(file);
     const content = fs.readFileSync(file, "utf8");
     const description = analyzeFile(file, content);
-    
+
     let folder = path.dirname(id);
     if (folder === ".") folder = "root";
 
@@ -100,7 +104,7 @@ export function buildDependencyGraph() {
       label: path.basename(id),
       description: description,
       group: folder,
-      tags: [folder]
+      tags: [folder],
     });
   }
 
@@ -114,16 +118,16 @@ export function buildDependencyGraph() {
       let match;
       while ((match = allImportsRegex.exec(content)) !== null) {
         let importPath = match[1] || match[2];
-        if (importPath && importPath.startsWith(".")) {
+        if (importPath?.startsWith(".")) {
           // Xử lý .js -> .ts mapping
           if (importPath.endsWith(".js")) {
             importPath = importPath.replace(/\.js$/, ".ts");
           }
-          
+
           const dir = path.dirname(file);
           const resolvedAbsolute = path.resolve(dir, importPath);
           const targetId = getRelativeId(resolvedAbsolute);
-          
+
           if (nodes.has(targetId)) {
             edges.push({ from: id, to: targetId });
           }
@@ -147,13 +151,13 @@ export function buildDependencyGraph() {
             }
           });
         }
-      } catch (e) {}
+      } catch (_e) {}
     }
   }
 
   return {
     nodes: Array.from(nodes.values()),
-    edges
+    edges,
   };
 }
 
@@ -161,14 +165,14 @@ function startServer() {
   const PORT = 3114;
   const server = http.createServer((req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
-    
+
     if (req.url === "/api/graph") {
       const graphData = buildDependencyGraph();
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(graphData));
       return;
     }
-    
+
     if (req.url === "/" || req.url === "/index.html") {
       const viewerPath = path.join(__dirname, "..", "src", "viewer", "index.html");
       if (fs.existsSync(viewerPath)) {
@@ -178,7 +182,7 @@ function startServer() {
         res.end(html);
       } else {
         res.writeHead(404);
-        res.end("Viewer HTML not found at: " + viewerPath);
+        res.end(`Viewer HTML not found at: ${viewerPath}`);
       }
       return;
     }
@@ -193,8 +197,8 @@ function startServer() {
     console.log(pc.dim("Nhấn Ctrl+C để thoát.\n"));
   });
 
-  server.on('error', (e: any) => {
-    if (e.code === 'EADDRINUSE') {
+  server.on("error", (e: any) => {
+    if (e.code === "EADDRINUSE") {
       console.error(pc.red(`Cổng ${PORT} đã được sử dụng. Hãy đóng tiến trình khác trước.`));
       process.exit(1);
     }

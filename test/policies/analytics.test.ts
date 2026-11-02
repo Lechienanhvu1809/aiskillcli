@@ -1,10 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
+import pc from "picocolors";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliContext } from "../../src/context.js";
-import { readAnalytics, trackUsage, writeAnalytics, auditSkills } from "../../src/policies/analytics.js";
+import {
+  auditSkills,
+  readAnalytics,
+  trackUsage,
+  writeAnalytics,
+} from "../../src/policies/analytics.js";
 import * as registry from "../../src/policies/skill-registry.js";
-import pc from "picocolors";
 
 vi.mock("node:fs", () => ({
   default: {
@@ -12,7 +17,7 @@ vi.mock("node:fs", () => ({
     readFileSync: vi.fn(),
     writeFileSync: vi.fn(),
     mkdirSync: vi.fn(),
-  }
+  },
 }));
 
 vi.mock("../../src/policies/skill-registry.js", () => ({
@@ -52,7 +57,9 @@ describe("Analytics Policy", () => {
 
     it("trả về object rỗng nếu JSON lỗi", () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readFileSync).mockImplementation(() => { throw new Error("JSON error"); });
+      vi.mocked(fs.readFileSync).mockImplementation(() => {
+        throw new Error("JSON error");
+      });
       expect(readAnalytics(ctx)).toEqual({});
     });
   });
@@ -60,7 +67,7 @@ describe("Analytics Policy", () => {
   describe("writeAnalytics", () => {
     it("tạo thư mục và ghi file nếu chưa có", () => {
       vi.mocked(fs.existsSync).mockReturnValue(false); // cho skillsDir
-      writeAnalytics(ctx, { "test": { usageCount: 1, lastUsed: 1 } });
+      writeAnalytics(ctx, { test: { usageCount: 1, lastUsed: 1 } });
       expect(fs.mkdirSync).toHaveBeenCalledWith("/mock/skills", { recursive: true });
       expect(fs.writeFileSync).toHaveBeenCalled();
     });
@@ -68,11 +75,15 @@ describe("Analytics Policy", () => {
 
   describe("trackUsage", () => {
     it("tăng count và cập nhật thời gian cho skill đã có", () => {
-      vi.mocked(fs.existsSync).mockImplementation(p => p === path.join(ctx.skillsDir, "analytics.json"));
-      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
-        "my-skill": { usageCount: 1, lastUsed: 100 }
-      }));
-      
+      vi.mocked(fs.existsSync).mockImplementation(
+        (p) => p === path.join(ctx.skillsDir, "analytics.json"),
+      );
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify({
+          "my-skill": { usageCount: 1, lastUsed: 100 },
+        }),
+      );
+
       const now = Date.now();
       vi.useFakeTimers();
       vi.setSystemTime(now);
@@ -82,7 +93,7 @@ describe("Analytics Policy", () => {
       expect(fs.writeFileSync).toHaveBeenCalledWith(
         path.join(ctx.skillsDir, "analytics.json"),
         expect.stringContaining('"usageCount": 2'),
-        "utf-8"
+        "utf-8",
       );
 
       vi.useRealTimers();
@@ -94,7 +105,7 @@ describe("Analytics Policy", () => {
       expect(fs.writeFileSync).toHaveBeenCalledWith(
         path.join(ctx.skillsDir, "analytics.json"),
         expect.stringContaining('"usageCount": 1'),
-        "utf-8"
+        "utf-8",
       );
     });
   });
@@ -110,18 +121,20 @@ describe("Analytics Policy", () => {
       vi.mocked(registry.listSkills).mockReturnValue([
         { name: "skill-1", path: "" },
         { name: "skill-2", path: "" },
-        { name: "skill-3", path: "" }
+        { name: "skill-3", path: "" },
       ]);
       vi.mocked(fs.existsSync).mockReturnValue(true);
-      
+
       const now = Date.now();
       const sixMonths = 6 * 30 * 24 * 60 * 60 * 1000;
-      
-      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
-        "skill-1": { usageCount: 100, lastUsed: now }, // Rất hay dùng
-        "skill-2": { usageCount: 1, lastUsed: now - sixMonths - 1000 }, // Cũ
-        // skill-3 không có trong db (chưa dùng)
-      }));
+
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify({
+          "skill-1": { usageCount: 100, lastUsed: now }, // Rất hay dùng
+          "skill-2": { usageCount: 1, lastUsed: now - sixMonths - 1000 }, // Cũ
+          // skill-3 không có trong db (chưa dùng)
+        }),
+      );
 
       auditSkills(ctx);
 
@@ -137,12 +150,16 @@ describe("Analytics Policy", () => {
     it("in ra báo cáo tốt khi mọi kỹ năng đều được dùng", () => {
       vi.mocked(registry.listSkills).mockReturnValue([{ name: "skill-1", path: "" }]);
       vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
-        "skill-1": { usageCount: 100, lastUsed: Date.now() },
-      }));
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify({
+          "skill-1": { usageCount: 100, lastUsed: Date.now() },
+        }),
+      );
 
       auditSkills(ctx);
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Tuyệt vời! Tất cả các kỹ năng đều được sử dụng thường xuyên."));
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Tuyệt vời! Tất cả các kỹ năng đều được sử dụng thường xuyên."),
+      );
     });
   });
 });

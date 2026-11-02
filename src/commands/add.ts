@@ -1,15 +1,16 @@
+import { SkillApplicationService } from "../application/SkillApplicationService.js";
 import type { CliContext } from "../context.js";
+import { FileSystemSkillRepository } from "../infrastructure/FileSystemSkillRepository.js";
 import { syncPull, syncPush } from "../policies/git-sync.js";
 import { validateSkillName } from "../policies/name-validation.js";
-import { addSkill, skillExists } from "../policies/skill-registry.js";
 import { handleError, success, warn } from "../utils/output.js";
 
-export function runAdd(
+export async function runAdd(
   ctx: CliContext,
   rawName: string,
   filePath: string,
   opts: { force?: boolean; tags?: string[]; noSync?: boolean },
-): void {
+): Promise<void> {
   try {
     const name = validateSkillName(rawName);
 
@@ -18,19 +19,23 @@ export function runAdd(
       syncPull(ctx);
     }
 
-    // Policy: Cảnh báo nếu overwrite, không silent
-    if (skillExists(ctx, name) && !opts.force) {
+    const repo = new FileSystemSkillRepository(ctx.skillsDir);
+    const service = new SkillApplicationService(repo);
+
+    if ((await repo.exists(name)) && !opts.force) {
       warn(`Skill "${name}" đã tồn tại. Dùng --force để ghi đè.`);
       process.exit(1);
     }
-    if (skillExists(ctx, name) && opts.force) {
+    if ((await repo.exists(name)) && opts.force) {
       warn(`Đang ghi đè skill "${name}"...`);
     }
 
-    addSkill(ctx, name, filePath, { overwrite: opts.force, tags: opts.tags });
-    success(`Đã thêm kỹ năng "${name}" vào kho lưu trữ!`);
+    await service.createSkill(name, filePath, opts.tags || [], opts.force);
+
+    success(`Đã thêm/cập nhật kỹ năng "${name}".`);
+
     if (!opts.noSync) {
-      syncPush(ctx, `Auto-sync: Add skill ${name}`);
+      syncPush(ctx, `Auto-sync: Add/update skill ${name}`);
     }
   } catch (err) {
     handleError(err);

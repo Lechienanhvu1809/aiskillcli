@@ -10,8 +10,8 @@ import { type FetchOptions, runFetch } from "./commands/fetch.js";
 import { runGet } from "./commands/get.js";
 import { runGraph } from "./commands/graph.js";
 import { type ImportOptions, runImport } from "./commands/import.js";
-import { type LearnOptions, runLearn } from "./commands/learn.js";
 import { runInitSync } from "./commands/init-sync.js";
+import { type LearnOptions, runLearn } from "./commands/learn.js";
 import { runList } from "./commands/list.js";
 import { type RecommendOptions, runRecommend } from "./commands/recommend.js";
 import { runRemove } from "./commands/remove.js";
@@ -38,31 +38,34 @@ program
 program
   .command("list")
   .description("Liệt kê danh sách tất cả các kỹ năng đang có")
-  .action(() => runList(ctx));
+  .action(async () => await runList(ctx));
 
 program
   .command("get <name>")
   .description("Đọc và in ra nội dung của một kỹ năng cụ thể")
   .option("--no-sync", "Bỏ qua việc đồng bộ git tự động")
   .option("-r, --recursive", "Tự động tải nội dung của các skill phụ thuộc (thông qua requires)")
-  .action((name: string, opts: { sync?: boolean; recursive?: boolean }) =>
-    runGet(ctx, name, { noSync: !opts.sync, recursive: opts.recursive }),
+  .action(
+    async (name: string, opts: { sync?: boolean; recursive?: boolean }) =>
+      await runGet(ctx, name, { noSync: !opts.sync, recursive: opts.recursive }),
   );
 
 program
   .command("add <name> <file_path>")
   .description("Thêm một kỹ năng mới từ file Markdown có sẵn")
   .option("--no-sync", "Bỏ qua việc đồng bộ git tự động")
-  .action((name: string, filePath: string, opts: { sync?: boolean }) =>
-    runAdd(ctx, name, filePath, { noSync: !opts.sync }),
+  .action(
+    async (name: string, filePath: string, opts: { sync?: boolean }) =>
+      await runAdd(ctx, name, filePath, { noSync: !opts.sync }),
   );
 
 program
   .command("learn <topic> <lesson>")
   .description("Tự động trích xuất bài học và ghi vào sổ tay kỹ năng (learned-<topic>)")
   .option("--no-sync", "Bỏ qua việc đồng bộ git tự động")
-  .action((topic: string, lesson: string, opts: LearnOptions) =>
-    runLearn(ctx, topic, lesson, opts),
+  .action(
+    async (topic: string, lesson: string, opts: LearnOptions) =>
+      await runLearn(ctx, topic, lesson, opts),
   );
 
 program
@@ -74,19 +77,19 @@ program
   .command("remove <name>")
   .alias("rm")
   .description("Xóa một kỹ năng khỏi kho lưu trữ")
-  .action((name: string) => runRemove(ctx, name));
+  .action(async (name: string) => await runRemove(ctx, name));
 
 program
   .command("search <keyword>")
   .description("Tìm kiếm kỹ năng theo tên hoặc nội dung")
   .option("-s, --semantic", "Tìm kiếm thông minh với TF-IDF + fuzzy matching")
   .option("--tag <tag>", "Lọc kết quả theo tag")
-  .action((keyword: string, opts: SearchOptions) => runSearch(ctx, keyword, opts));
+  .action(async (keyword: string, opts: SearchOptions) => await runSearch(ctx, keyword, opts));
 
 program
   .command("apply <name>")
   .description("Bơm kỹ năng từ kho tổng vào dự án hiện tại (tạo Symlink)")
-  .action((name: string) => runApply(ctx, name));
+  .action(async (name: string) => await runApply(ctx, name));
 
 program
   .command("run <name>")
@@ -102,13 +105,15 @@ program
   .option("--tags <tags...>", "Danh sách tags (cách nhau bởi dấu cách)")
   .option("--force", "Ghi đè nếu skill đã tồn tại")
   .option("--list-templates", "Liệt kê các template có sẵn")
-  .action((name: string | undefined, opts: CreateOptions) => runCreate(ctx, name, opts));
+  .action(
+    async (name: string | undefined, opts: CreateOptions) => await runCreate(ctx, name, opts),
+  );
 
 program
   .command("recommend")
   .description("Phân tích dự án và gợi ý kỹ năng phù hợp")
   .option("--dir <path>", "Thư mục dự án cần phân tích (mặc định: thư mục hiện tại)")
-  .action((opts: RecommendOptions) => runRecommend(ctx, opts));
+  .action(async (opts: RecommendOptions) => await runRecommend(ctx, opts));
 
 program
   .command("update")
@@ -118,7 +123,7 @@ program
 program
   .command("stats")
   .description("Xem thống kê kho kỹ năng và tags")
-  .action(() => runStats(ctx));
+  .action(async () => await runStats(ctx));
 
 program
   .command("audit")
@@ -129,7 +134,7 @@ program
 program
   .command("diff <name> <file>")
   .description("So sánh kỹ năng trong kho với file bên ngoài")
-  .action((name: string, file: string) => runDiff(ctx, name, file));
+  .action(async (name: string, file: string) => await runDiff(ctx, name, file));
 
 program
   .command("fetch [name]")
@@ -161,7 +166,7 @@ program
       "    ai-skills tag rename frontend ui",
     ].join("\n"),
   )
-  .action((action: string, args: string[]) => runTag(ctx, action, args));
+  .action(async (action: string, args: string[]) => await runTag(ctx, action, args));
 
 program
   .command("export <file> [skills...]")
@@ -169,8 +174,9 @@ program
   .option("--tag <tag>", "Export các skills có chứa tag này")
   .option("--all", "Export toàn bộ kho kỹ năng")
   .option("--with-deps", "Bao gồm cả các skill phụ thuộc (thông qua requires)")
-  .action((file: string, skills: string[], opts: ExportOptions) =>
-    runExport(ctx, file, skills, opts),
+  .action(
+    async (file: string, skills: string[], opts: ExportOptions) =>
+      await runExport(ctx, file, skills, opts),
   );
 
 program
@@ -178,7 +184,7 @@ program
   .description("Nhập các skills từ file bundle JSON")
   .option("--force", "Ghi đè nếu skill đã tồn tại")
   .option("--diff", "So sánh khác biệt thay vì ghi đè")
-  .action((file: string, opts: ImportOptions) => runImport(ctx, file, opts));
+  .action(async (file: string, opts: ImportOptions) => await runImport(ctx, file, opts));
 
 program.parseAsync().catch((err) => {
   console.error(err);

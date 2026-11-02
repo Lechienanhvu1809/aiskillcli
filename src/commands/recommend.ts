@@ -1,15 +1,16 @@
+import { SkillApplicationService } from "../application/SkillApplicationService.js";
 import type { CliContext } from "../context.js";
+import { FileSystemSkillRepository } from "../infrastructure/FileSystemSkillRepository.js";
 import { syncPull } from "../policies/git-sync.js";
 import { analyzeProject } from "../policies/project-analyzer.js";
 import { recommendSkills } from "../policies/recommender.js";
-import { listSkills } from "../policies/skill-registry.js";
 import { c, info } from "../utils/output.js";
 
 export interface RecommendOptions {
   dir?: string;
 }
 
-export function runRecommend(ctx: CliContext, opts: RecommendOptions): void {
+export async function runRecommend(ctx: CliContext, opts: RecommendOptions): Promise<void> {
   syncPull(ctx);
 
   const projectDir = opts.dir ?? process.cwd();
@@ -30,14 +31,19 @@ export function runRecommend(ctx: CliContext, opts: RecommendOptions): void {
   console.log(`  Docker:     ${profile.hasDocker ? c.ok("✓") : c.dim("✗")}`);
   console.log();
 
-  // Gợi ý skills
-  const skills = listSkills(ctx);
+  // Gợi ý skills qua Application Service
+  const repo = new FileSystemSkillRepository(ctx.skillsDir);
+  const service = new SkillApplicationService(repo);
+  const skills = await service.getAllSkills();
+
   if (skills.length === 0) {
     info("Kho kỹ năng đang trống. Thêm kỹ năng bằng: ai-skills add <tên> <file>");
     return;
   }
 
-  const recommendations = recommendSkills(ctx, profile, skills);
+  // recommendSkills cần dạng SkillInfo[] (name + path) — map từ domain Skill
+  const skillInfos = skills.map((s) => ({ name: s.id, path: `${ctx.skillsDir}/${s.id}.md` }));
+  const recommendations = await recommendSkills(ctx, profile, skillInfos);
 
   if (recommendations.length === 0) {
     info("Không tìm thấy kỹ năng phù hợp với dự án này.");
@@ -61,5 +67,5 @@ export function runRecommend(ctx: CliContext, opts: RecommendOptions): void {
   }
 
   console.log();
-  info(`Apply bằng: ai-skills apply <tên>`);
+  info("Apply bằng: ai-skills apply <tên>");
 }

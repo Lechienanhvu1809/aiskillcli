@@ -1,11 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CliContext } from "../../src/context.js";
 import { runDiff } from "../../src/commands/diff.js";
+import type { CliContext } from "../../src/context.js";
 import * as diffPolicy from "../../src/policies/diff.js";
 
-// Mock output.ts to suppress console output during tests
 vi.mock("../../src/utils/output.js", () => ({
   c: {
     ok: (s: string) => s,
@@ -16,8 +15,12 @@ vi.mock("../../src/utils/output.js", () => ({
     cmd: (s: string) => s,
     accent: (s: string) => s,
   },
-  fatal: vi.fn().mockImplementation((msg) => { throw new Error(`FATAL: ${msg}`); }),
-  handleError: vi.fn().mockImplementation((err) => { throw err; }),
+  fatal: vi.fn().mockImplementation((msg) => {
+    throw new Error(`FATAL: ${msg}`);
+  }),
+  handleError: vi.fn().mockImplementation((err) => {
+    throw err;
+  }),
 }));
 
 describe("runDiff", () => {
@@ -44,40 +47,38 @@ describe("runDiff", () => {
   it("should fail if skill does not exist", async () => {
     const { fatal } = await import("../../src/utils/output.js");
     fs.writeFileSync(incomingFile, "incoming content");
-    
-    expect(() => runDiff(ctx, "nonexistent", incomingFile)).toThrowError(/FATAL:/);
+
+    await expect(runDiff(ctx, "nonexistent", incomingFile)).rejects.toThrowError(/FATAL:/);
     expect(fatal).toHaveBeenCalledWith(expect.stringContaining("Không tìm thấy kỹ năng"));
   });
 
   it("should fail if incoming file does not exist", async () => {
     const { fatal } = await import("../../src/utils/output.js");
     fs.writeFileSync(path.join(testDir, "s1.md"), "current content");
-    
-    expect(() => runDiff(ctx, "s1", "ghost.md")).toThrowError(/FATAL:/);
+
+    await expect(runDiff(ctx, "s1", "ghost.md")).rejects.toThrowError(/FATAL:/);
     expect(fatal).toHaveBeenCalledWith(expect.stringContaining("Không tìm thấy file"));
   });
 
-  it("should output identical message when diff returns empty", () => {
+  it("should output identical message when diff returns empty", async () => {
     fs.writeFileSync(path.join(testDir, "s1.md"), "same");
     fs.writeFileSync(incomingFile, "same");
-    
-    // Mock generateDiff to return empty
+
     vi.spyOn(diffPolicy, "generateDiff").mockReturnValue("");
 
-    runDiff(ctx, "s1", incomingFile);
-    
+    await runDiff(ctx, "s1", incomingFile);
+
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining("không có thay đổi nào"));
   });
 
-  it("should output diff output when diff returns a string", () => {
+  it("should output diff output when diff returns a string", async () => {
     fs.writeFileSync(path.join(testDir, "s1.md"), "old");
     fs.writeFileSync(incomingFile, "new");
-    
-    // Mock generateDiff to return fake diff
+
     vi.spyOn(diffPolicy, "generateDiff").mockReturnValue("diff string here");
 
-    runDiff(ctx, "s1", incomingFile);
-    
+    await runDiff(ctx, "s1", incomingFile);
+
     expect(console.log).toHaveBeenCalledWith("diff string here");
   });
 });

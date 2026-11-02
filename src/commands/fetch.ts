@@ -10,6 +10,7 @@ import {
   findSkillInManifest,
   findSkillsByBundle,
   listRemoteSkills,
+  type RegistryManifest,
   type RemoteSkillEntry,
 } from "../policies/registry-fetcher.js";
 import { getSkill, skillExists, skillPath } from "../policies/skill-registry.js";
@@ -85,13 +86,14 @@ export async function runFetch(
   // ── --list: show remote catalog ────────────────────────────────────────────
   if (opts.list) {
     console.log(`\n${c.bold("Skills trong autoskills registry:")}\n`);
-    let manifest;
+    let manifest: RegistryManifest | undefined;
     try {
       manifest = await fetchManifest();
     } catch (err) {
       fatal(err instanceof FetchError ? err.message : String(err));
     }
-    const entries = listRemoteSkills(manifest!);
+    if (!manifest) return;
+    const entries = listRemoteSkills(manifest);
     for (const e of entries) {
       printSkillEntry(e, skillExists(ctx, e.name));
     }
@@ -101,15 +103,16 @@ export async function runFetch(
 
   // ── Fetch manifest ─────────────────────────────────────────────────────────
   console.log(`\n${c.dim("Đang kết nối autoskills registry...")}`);
-  let manifest;
+  let manifest: RegistryManifest | undefined;
   try {
     manifest = await fetchManifest();
   } catch (err) {
     fatal(err instanceof FetchError ? err.message : String(err));
     return;
   }
+  if (!manifest) return;
   console.log(
-    `${c.ok("✓")} Kết nối thành công (${Object.keys(manifest!.skills).length} skills có sẵn)\n`,
+    `${c.ok("✓")} Kết nối thành công (${Object.keys(manifest?.skills).length} skills có sẵn)\n`,
   );
 
   // ── --auto: analyze project + pick matching skills ─────────────────────────
@@ -121,7 +124,7 @@ export async function runFetch(
     console.log(`${c.dim("Tech stack:")} ${keywords.join(", ") || "unknown"}\n`);
 
     // Filter entries khớp với keywords
-    const all = listRemoteSkills(manifest!);
+    const all = listRemoteSkills(manifest);
     const matched = all.filter((e) => {
       const searchStr = `${e.name} ${e.description ?? ""} ${e.source}`.toLowerCase();
       return keywords.some((kw) => searchStr.includes(kw.toLowerCase()));
@@ -144,7 +147,7 @@ export async function runFetch(
 
   // ── --from <bundle>: fetch all skills from a bundle ────────────────────────
   if (opts.from) {
-    const entries = findSkillsByBundle(manifest!, opts.from);
+    const entries = findSkillsByBundle(manifest, opts.from);
     if (entries.length === 0) {
       fatal(`Không tìm thấy bundle "${opts.from}" trong registry.`);
       return;
@@ -167,7 +170,7 @@ export async function runFetch(
     return;
   }
 
-  const entry = findSkillInManifest(manifest!, name);
+  const entry = findSkillInManifest(manifest, name);
   if (!entry) {
     fatal(
       `Không tìm thấy skill "${name}" trong registry.\nChạy ${c.accent("ai-skills fetch --list")} để xem danh sách.`,

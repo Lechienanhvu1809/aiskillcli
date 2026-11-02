@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import { SkillApplicationService } from "../application/SkillApplicationService.js";
 import type { CliContext } from "../context.js";
+import { FileSystemSkillRepository } from "../infrastructure/FileSystemSkillRepository.js";
 import { BundleError, importBundle, parseBundle } from "../policies/bundle.js";
 import { generateDiff } from "../policies/diff.js";
 import { syncPush } from "../policies/git-sync.js";
-import { getSkill, skillExists } from "../policies/skill-registry.js";
 import { c, fatal, handleError, success, warn } from "../utils/output.js";
 
 export interface ImportOptions {
@@ -12,11 +13,16 @@ export interface ImportOptions {
   diff?: boolean;
 }
 
-export function runImport(ctx: CliContext, inputFile: string, opts: ImportOptions): void {
+export async function runImport(
+  ctx: CliContext,
+  inputFile: string,
+  opts: ImportOptions,
+): Promise<void> {
   try {
     const inputPath = path.resolve(process.cwd(), inputFile);
     if (!fs.existsSync(inputPath)) {
       fatal(`Không tìm thấy file "${inputFile}".`);
+      return;
     }
 
     const content = fs.readFileSync(inputPath, "utf8");
@@ -24,12 +30,15 @@ export function runImport(ctx: CliContext, inputFile: string, opts: ImportOption
 
     console.log(`Đọc bundle thành công (chứa ${bundle.skills.length} skills).`);
 
+    const repo = new FileSystemSkillRepository(ctx.skillsDir);
+    const service = new SkillApplicationService(repo);
+
     if (opts.diff) {
       let hasDiff = false;
       for (const skill of bundle.skills) {
-        if (skillExists(ctx, skill.name)) {
-          const currentContent = getSkill(ctx, skill.name);
-          const diffOutput = generateDiff(skill.name, currentContent, skill.content);
+        const existing = await service.getSkill(skill.name);
+        if (existing) {
+          const diffOutput = generateDiff(skill.name, existing.content, skill.content);
           if (diffOutput) {
             hasDiff = true;
             console.log(`\n${c.bold(`Sự khác biệt cho kỹ năng "${skill.name}":`)}`);
@@ -43,7 +52,7 @@ export function runImport(ctx: CliContext, inputFile: string, opts: ImportOption
         }
       }
       if (!hasDiff) {
-        console.log(`\nKhông có sự thay đổi nào cho các kỹ năng trong bundle.`);
+        console.log("\nKhông có sự thay đổi nào cho các kỹ năng trong bundle.");
       }
       return;
     }
@@ -69,6 +78,7 @@ export function runImport(ctx: CliContext, inputFile: string, opts: ImportOption
   } catch (err) {
     if (err instanceof BundleError) {
       fatal(err.message);
+      return;
     }
     handleError(err);
   }

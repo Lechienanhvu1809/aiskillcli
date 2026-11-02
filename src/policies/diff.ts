@@ -39,9 +39,10 @@ export function generateDiff(skillName: string, contentOld: string, contentNew: 
         stdio: ["ignore", "pipe", "pipe"],
       });
       return ""; // No diff found
-    } catch (err: any) {
-      if (err.status === 1 && err.stdout) {
-        let diffStr = err.stdout as string;
+    } catch (err: unknown) {
+      const execErr = err as { status?: number; stdout?: string; message?: string };
+      if (execErr.status === 1 && execErr.stdout) {
+        let diffStr = execErr.stdout as string;
         // Clean up the temp paths in the diff output so it looks nicer to the user
         // Replace `a/path/to/fileA` with `a/current` and `b/path/to/fileB` with `b/incoming`
         diffStr = diffStr.replace(
@@ -67,7 +68,7 @@ export function generateDiff(skillName: string, contentOld: string, contentNew: 
       }
 
       throw new DiffError(
-        `Không thể chạy lệnh git diff. Vui lòng đảm bảo Git đã được cài đặt: ${err.message}`,
+        `Không thể chạy lệnh git diff. Vui lòng đảm bảo Git đã được cài đặt: ${execErr.message}`,
       );
     }
   } finally {

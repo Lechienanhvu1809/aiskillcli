@@ -158,12 +158,13 @@ const STOPWORDS = new Set([
 
 /** Tách text thành tokens đã normalize */
 export function tokenize(text: string): string[] {
-  return text
-    .toLowerCase()
-    .replace(/[^\p{L}0-9-]/gu, " ") // Hỗ trợ unicode letters toàn diện
-    .split(/\s+/)
-    .filter((w) => w.length > 1 && !STOPWORDS.has(w));
+  const words = text.toLowerCase().match(/[\p{L}\d-]+/gu);
+  if (!words) return [];
+  return words.filter((w) => w.length > 1 && !STOPWORDS.has(w));
 }
+
+const prevRow = new Int32Array(256);
+const currRow = new Int32Array(256);
 
 /** Tính Levenshtein distance giữa 2 string */
 export function levenshtein(a: string, b: string): number {
@@ -172,9 +173,10 @@ export function levenshtein(a: string, b: string): number {
   if (la === 0) return lb;
   if (lb === 0) return la;
 
-  // Dùng 2 rows thay vì full matrix để tiết kiệm bộ nhớ
-  let prev = Array.from({ length: lb + 1 }, (_, i) => i);
-  let curr = new Array<number>(lb + 1);
+  let prev = lb < 256 ? prevRow : new Int32Array(lb + 1);
+  let curr = lb < 256 ? currRow : new Int32Array(lb + 1);
+
+  for (let i = 0; i <= lb; i++) prev[i] = i;
 
   for (let i = 1; i <= la; i++) {
     curr[0] = i;
@@ -186,7 +188,9 @@ export function levenshtein(a: string, b: string): number {
         prev[j - 1] + cost, // substitution
       );
     }
-    [prev, curr] = [curr, prev];
+    const temp = prev;
+    prev = curr;
+    curr = temp;
   }
   return prev[lb];
 }
@@ -298,6 +302,8 @@ function classifyMatchType(exactHits: number, fuzzyHits: number): ScoredResult["
   return "tfidf";
 }
 
+const docTokenCache = new Map<string, { content: string; tokens: string[] }>();
+
 /**
  * Tìm kiếm thông minh với TF-IDF + fuzzy matching.
  * @param docs Map<skillName, fileContent>
@@ -308,14 +314,20 @@ export function searchWithTfIdf(docs: Map<string, string>, query: string): Score
   const queryTokens = tokenize(query);
   if (queryTokens.length === 0) return [];
 
-  // Tokenize tất cả documents
+  // Tokenize tất cả documents với caching
   const docTokensList: DocTokens[] = [];
   for (const [name, content] of docs) {
-    docTokensList.push({
-      name,
-      tokens: tokenize(`${name} ${content}`),
-      content,
-    });
+    let tokens: string[];
+    const cached = docTokenCache.get(name);
+
+    if (cached && cached.content === content) {
+      tokens = cached.tokens;
+    } else {
+      tokens = tokenize(`${name} ${content}`);
+      docTokenCache.set(name, { content, tokens });
+    }
+
+    docTokensList.push({ name, tokens, content });
   }
 
   // Tính IDF cho mỗi query term

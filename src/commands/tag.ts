@@ -1,7 +1,6 @@
-import fs from "node:fs";
+import { SkillApplicationService } from "../application/SkillApplicationService.js";
 import type { CliContext } from "../context.js";
-import { getSkill, listSkills, skillExists, skillPath } from "../policies/skill-registry.js";
-import { getTags, injectTags, removeTag, renameTag } from "../utils/frontmatter.js";
+import { FileSystemSkillRepository } from "../infrastructure/FileSystemSkillRepository.js";
 import { c, fatal } from "../utils/output.js";
 
 /**
@@ -11,102 +10,70 @@ import { c, fatal } from "../utils/output.js";
 
 // ─── tag add ──────────────────────────────────────────────────────────────────
 
-export function runTagAdd(ctx: CliContext, skillName: string, tags: string[]): void {
+export async function runTagAdd(ctx: CliContext, skillName: string, tags: string[]): Promise<void> {
   if (tags.length === 0) {
     fatal("Cần ít nhất 1 tag. Ví dụ: ai-skills tag add my-skill frontend web");
     return;
   }
-  if (!skillExists(ctx, skillName)) {
-    fatal(`Không tìm thấy skill "${skillName}".`);
-    return;
-  }
 
-  const p = skillPath(ctx, skillName);
-  const content = fs.readFileSync(p, "utf8");
-  const current = getTags(content);
+  const repo = new FileSystemSkillRepository(ctx.skillsDir);
+  const service = new SkillApplicationService(repo);
 
-  // Chỉ thêm tags chưa có (deduplicate)
-  const lower = new Set(current.map((t) => t.toLowerCase()));
-  const toAdd = tags.filter((t) => !lower.has(t.toLowerCase()));
-
-  if (toAdd.length === 0) {
+  try {
+    const skill = await service.addTagsToSkill(skillName, tags);
+    console.log(`${c.ok("✓")}  Tags của "${skillName}":`);
     console.log(
-      `${c.warn("⚠")}  Tất cả tags đã tồn tại trong "${skillName}": ${current.map((t) => c.accent(t)).join(", ")}`,
+      `   ${skill
+        .getTags()
+        .map((t) => c.accent(t.value))
+        .join("  ")}`,
     );
-    return;
-  }
-
-  const next = [...current, ...toAdd];
-  const updated = injectTags(content, next);
-  fs.writeFileSync(p, updated, "utf8");
-
-  console.log(`${c.ok("✓")}  Tags của "${skillName}":`);
-  console.log(`   ${next.map((t) => c.accent(t)).join("  ")}`);
-  if (toAdd.length < tags.length) {
-    const skipped = tags.filter((t) => lower.has(t.toLowerCase()));
-    console.log(`${c.dim(`   (bỏ qua đã có: ${skipped.join(", ")})`)}`);
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    if (errMsg.includes("not found")) {
+      fatal(`Không tìm thấy skill "${skillName}".`);
+    } else {
+      fatal(errMsg);
+    }
   }
 }
 
 // ─── tag remove ───────────────────────────────────────────────────────────────
 
-export function runTagRemove(ctx: CliContext, skillName: string, tag: string): void {
-  if (!skillExists(ctx, skillName)) {
-    fatal(`Không tìm thấy skill "${skillName}".`);
-    return;
-  }
+export async function runTagRemove(ctx: CliContext, skillName: string, tag: string): Promise<void> {
+  const repo = new FileSystemSkillRepository(ctx.skillsDir);
+  const service = new SkillApplicationService(repo);
 
-  const p = skillPath(ctx, skillName);
-  const content = fs.readFileSync(p, "utf8");
-  const { content: updated, removed } = removeTag(content, tag);
-
-  if (!removed) {
-    console.log(`${c.warn("⚠")}  Tag "${tag}" không tồn tại trong skill "${skillName}".`);
-    const current = getTags(content);
-    if (current.length > 0) {
-      console.log(`   Tags hiện tại: ${current.map((t) => c.accent(t)).join("  ")}`);
+  try {
+    const skill = await service.removeTagFromSkill(skillName, tag);
+    console.log(`${c.ok("✓")}  Đã xóa tag "${tag}" khỏi "${skillName}".`);
+    const remaining = skill.getTags();
+    if (remaining.length > 0) {
+      console.log(`   Tags còn lại: ${remaining.map((t) => c.accent(t.value)).join("  ")}`);
+    } else {
+      console.log(`   ${c.dim("(không còn tag nào)")}`);
     }
-    return;
-  }
-
-  fs.writeFileSync(p, updated, "utf8");
-  const remaining = getTags(updated);
-  console.log(`${c.ok("✓")}  Đã xóa tag "${tag}" khỏi "${skillName}".`);
-  if (remaining.length > 0) {
-    console.log(`   Tags còn lại: ${remaining.map((t) => c.accent(t)).join("  ")}`);
-  } else {
-    console.log(`   ${c.dim("(không còn tag nào)")}`);
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    if (errMsg.includes("not found")) {
+      fatal(`Không tìm thấy skill "${skillName}".`);
+    } else {
+      fatal(errMsg);
+    }
   }
 }
 
 // ─── tag list ─────────────────────────────────────────────────────────────────
 
-export function runTagList(ctx: CliContext): void {
-  const skills = listSkills(ctx);
-  if (skills.length === 0) {
-    console.log(c.dim("Kho kỹ năng trống."));
-    return;
-  }
+export async function runTagList(ctx: CliContext): Promise<void> {
+  const repo = new FileSystemSkillRepository(ctx.skillsDir);
+  const service = new SkillApplicationService(repo);
 
-  // Build tag → skill[] map
-  const tagMap = new Map<string, string[]>();
-  let untaggedCount = 0;
+  const { tagMap, untagged } = await service.getTagsOverview();
 
-  for (const skill of skills) {
-    const content = getSkill(ctx, skill.name);
-    const tags = getTags(content);
-    if (tags.length === 0) {
-      untaggedCount++;
-      continue;
-    }
-    for (const tag of tags) {
-      const existing = tagMap.get(tag) ?? [];
-      existing.push(skill.name);
-      tagMap.set(tag, existing);
-    }
-  }
+  const _totalSkills = Array.from(tagMap.values()).flat().length + untagged.length;
 
-  if (tagMap.size === 0 && untaggedCount === 0) {
+  if (tagMap.size === 0 && untagged.length === 0) {
     console.log(c.dim("Không có skill nào."));
     return;
   }
@@ -115,39 +82,32 @@ export function runTagList(ctx: CliContext): void {
 
   const sortedTags = [...tagMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   for (const [tag, names] of sortedTags) {
-    const count = c.dim(`(${names.length} skill)`);
+    const uniqueNames = Array.from(new Set(names)).sort();
+    const count = c.dim(`(${uniqueNames.length} skill)`);
     console.log(`  ${c.accent(tag.padEnd(24))} ${count}`);
-    for (const n of names.sort()) {
+    for (const n of uniqueNames) {
       console.log(`    ${c.dim("•")} ${n}`);
     }
   }
 
-  if (untaggedCount > 0) {
-    console.log(`\n  ${c.dim(`(untagged: ${untaggedCount} skills)`)}`);
+  if (untagged.length > 0) {
+    console.log(`\n  ${c.dim(`(untagged: ${untagged.length} skills)`)}`);
   }
-  console.log(`\n${c.dim(`Tổng: ${tagMap.size} tags, ${skills.length} skills`)}`);
+  console.log(`\n${c.dim(`Tổng: ${tagMap.size} tags`)}`);
 }
 
 // ─── tag rename ───────────────────────────────────────────────────────────────
 
-export function runTagRename(ctx: CliContext, oldTag: string, newTag: string): void {
+export async function runTagRename(ctx: CliContext, oldTag: string, newTag: string): Promise<void> {
   if (!newTag || newTag.trim() === "") {
     fatal("Tên tag mới không được để trống.");
     return;
   }
 
-  const skills = listSkills(ctx);
-  let renamedCount = 0;
+  const repo = new FileSystemSkillRepository(ctx.skillsDir);
+  const service = new SkillApplicationService(repo);
 
-  for (const skill of skills) {
-    const content = getSkill(ctx, skill.name);
-    const { content: updated, renamed } = renameTag(content, oldTag, newTag);
-    if (renamed) {
-      fs.writeFileSync(skill.path, updated, "utf8");
-      renamedCount++;
-      console.log(`  ${c.ok("✓")}  ${skill.name}`);
-    }
-  }
+  const renamedCount = await service.renameTag(oldTag, newTag);
 
   if (renamedCount === 0) {
     console.log(`${c.warn("⚠")}  Tag "${oldTag}" không tìm thấy trong bất kỳ skill nào.`);
@@ -159,7 +119,7 @@ export function runTagRename(ctx: CliContext, oldTag: string, newTag: string): v
 
 // ─── Dispatcher ───────────────────────────────────────────────────────────────
 
-export function runTag(ctx: CliContext, action: string, args: string[]): void {
+export async function runTag(ctx: CliContext, action: string, args: string[]): Promise<void> {
   switch (action) {
     case "add": {
       const [skill, ...tags] = args;
@@ -167,7 +127,7 @@ export function runTag(ctx: CliContext, action: string, args: string[]): void {
         fatal("Usage: ai-skills tag add <skill> <tag1> [tag2...]");
         return;
       }
-      runTagAdd(ctx, skill, tags);
+      await runTagAdd(ctx, skill, tags);
       break;
     }
     case "remove":
@@ -177,12 +137,12 @@ export function runTag(ctx: CliContext, action: string, args: string[]): void {
         fatal("Usage: ai-skills tag remove <skill> <tag>");
         return;
       }
-      runTagRemove(ctx, skill, tag);
+      await runTagRemove(ctx, skill, tag);
       break;
     }
     case "list":
     case "ls": {
-      runTagList(ctx);
+      await runTagList(ctx);
       break;
     }
     case "rename":
@@ -192,7 +152,7 @@ export function runTag(ctx: CliContext, action: string, args: string[]): void {
         fatal("Usage: ai-skills tag rename <old-tag> <new-tag>");
         return;
       }
-      runTagRename(ctx, oldTag, newTag);
+      await runTagRename(ctx, oldTag, newTag);
       break;
     }
     default:

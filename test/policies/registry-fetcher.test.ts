@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   FetchError,
-  type RegistryManifest,
   findSkillInManifest,
   findSkillsByBundle,
   listRemoteSkills,
   parseManifest,
+  type RegistryManifest,
   verifySha256,
 } from "../../src/policies/registry-fetcher.js";
 
@@ -138,13 +138,13 @@ describe("findSkillInManifest", () => {
   it("tìm thấy skill theo tên chính xác", () => {
     const entry = findSkillInManifest(MOCK_MANIFEST, "bash-defensive-patterns");
     expect(entry).toBeDefined();
-    expect(entry!.name).toBe("bash-defensive-patterns");
+    expect(entry?.name).toBe("bash-defensive-patterns");
   });
 
   it("tìm thấy skill case-insensitive", () => {
     const entry = findSkillInManifest(MOCK_MANIFEST, "Frontend-Design");
     expect(entry).toBeDefined();
-    expect(entry!.name).toBe("frontend-design");
+    expect(entry?.name).toBe("frontend-design");
   });
 
   it("trả về undefined khi không tìm thấy", () => {

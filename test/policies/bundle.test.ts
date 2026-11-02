@@ -40,7 +40,9 @@ describe("bundle policy", () => {
       fs.writeFileSync(path.join(testDir, "skill1.md"), "content1", "utf8");
 
       expect(() => exportBundle(ctx, ["skill1", "missing-skill"])).toThrowError(BundleError);
-      expect(() => exportBundle(ctx, ["skill1", "missing-skill"])).toThrowError(/Không tìm thấy skill/);
+      expect(() => exportBundle(ctx, ["skill1", "missing-skill"])).toThrowError(
+        /Không tìm thấy skill/,
+      );
     });
   });
 
@@ -49,7 +51,7 @@ describe("bundle policy", () => {
       const json = JSON.stringify({
         version: 1,
         type: "ai-skills-bundle",
-        skills: [{ name: "s1", content: "c1" }]
+        skills: [{ name: "s1", content: "c1" }],
       });
       const bundle = parseBundle(json);
       expect(bundle.skills).toHaveLength(1);
@@ -61,15 +63,17 @@ describe("bundle policy", () => {
     });
 
     it("should throw for missing required fields", () => {
-      expect(() => parseBundle('{}')).toThrowError(/thiếu các trường bắt buộc/);
-      expect(() => parseBundle('{"type":"ai-skills-bundle"}')).toThrowError(/thiếu các trường bắt buộc/);
+      expect(() => parseBundle("{}")).toThrowError(/thiếu các trường bắt buộc/);
+      expect(() => parseBundle('{"type":"ai-skills-bundle"}')).toThrowError(
+        /thiếu các trường bắt buộc/,
+      );
     });
 
     it("should throw for unsupported version", () => {
       const json = JSON.stringify({
         version: 2,
         type: "ai-skills-bundle",
-        skills: []
+        skills: [],
       });
       expect(() => parseBundle(json)).toThrowError(/chưa được hỗ trợ/);
     });
@@ -78,7 +82,7 @@ describe("bundle policy", () => {
       const json = JSON.stringify({
         version: 1,
         type: "ai-skills-bundle",
-        skills: [{ name: "s1" }] // missing content
+        skills: [{ name: "s1" }], // missing content
       });
       expect(() => parseBundle(json)).toThrowError(/Định dạng của một skill/);
     });
@@ -91,15 +95,15 @@ describe("bundle policy", () => {
         type: "ai-skills-bundle" as const,
         skills: [
           { name: "skill1", content: "c1" },
-          { name: "skill2", content: "c2" }
-        ]
+          { name: "skill2", content: "c2" },
+        ],
       };
 
       const result = importBundle(ctx, bundle);
-      
+
       expect(result.imported).toEqual(["skill1", "skill2"]);
       expect(result.skipped).toEqual([]);
-      
+
       expect(fs.readFileSync(path.join(testDir, "skill1.md"), "utf8")).toBe("c1");
       expect(fs.readFileSync(path.join(testDir, "skill2.md"), "utf8")).toBe("c2");
     });
@@ -112,15 +116,15 @@ describe("bundle policy", () => {
         type: "ai-skills-bundle" as const,
         skills: [
           { name: "skill1", content: "new1" },
-          { name: "skill2", content: "new2" }
-        ]
+          { name: "skill2", content: "new2" },
+        ],
       };
 
       const result = importBundle(ctx, bundle);
-      
+
       expect(result.imported).toEqual(["skill2"]);
       expect(result.skipped).toEqual(["skill1"]);
-      
+
       expect(fs.readFileSync(path.join(testDir, "skill1.md"), "utf8")).toBe("old");
       expect(fs.readFileSync(path.join(testDir, "skill2.md"), "utf8")).toBe("new2");
     });
@@ -131,16 +135,14 @@ describe("bundle policy", () => {
       const bundle = {
         version: 1,
         type: "ai-skills-bundle" as const,
-        skills: [
-          { name: "skill1", content: "new1" }
-        ]
+        skills: [{ name: "skill1", content: "new1" }],
       };
 
       const result = importBundle(ctx, bundle, { force: true });
-      
+
       expect(result.imported).toEqual(["skill1"]);
       expect(result.skipped).toEqual([]);
-      
+
       expect(fs.readFileSync(path.join(testDir, "skill1.md"), "utf8")).toBe("new1");
     });
   });

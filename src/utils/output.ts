@@ -48,7 +48,7 @@ const ERROR_HINTS: Record<string, string> = {
 /** Handle SkillValidationError, SkillRegistryError, FetchError, BundleError — gọi fatal với hint */
 export function handleError(err: unknown): never {
   if (err instanceof Error) {
-    const code = (err as any).code as string | undefined;
+    const code = (err as NodeJS.ErrnoException).code;
     const hint = code ? ERROR_HINTS[code] : undefined;
     if (hint) {
       fatal(`${err.message}\n  ${c.dim(`💡 ${hint}`)}`);

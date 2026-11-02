@@ -1,15 +1,484 @@
 #!/usr/bin/env node
-import { C as syncPush, S as syncPull, _ as injectTags, a as ensureSkillsDir, b as renameTag, c as listSkills, d as searchSkills, f as searchSkillsSemantic, g as getTags, i as addSkill, l as removeSkill, m as skillPath, n as createCliContext, o as getSkill, p as skillExists, r as analyzeProject, t as CLI_VERSION, v as parseFrontmatter, x as initSync, y as removeTag } from "./version-Dvmk0_Df.js";
 import { program } from "commander";
-import { execSync } from "node:child_process";
-import fs from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
+import { execFileSync, execSync } from "node:child_process";
+import fs$1 from "node:fs";
 import pc from "picocolors";
 import crypto from "node:crypto";
 import os from "node:os";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 import * as p from "@clack/prompts";
+//#region src/domain/value-objects/Tag.ts
+var Tag = class {
+	value;
+	constructor(value) {
+		const trimmed = value.trim();
+		if (!trimmed) throw new Error("Tag cannot be empty");
+		this.value = trimmed.toLowerCase();
+	}
+	equals(other) {
+		return this.value === other.value;
+	}
+};
+//#endregion
+//#region src/domain/entities/Skill.ts
+var Skill = class {
+	id;
+	name;
+	description;
+	content;
+	tags;
+	requirements;
+	constructor(id, description = "", content = "") {
+		if (!/^[a-z0-9-]+$/.test(id)) throw new Error(`Invalid skill ID: ${id}. Must be lowercase alphanumeric with hyphens.`);
+		this.id = id;
+		this.name = id;
+		this.description = description;
+		this.content = content;
+		this.tags = /* @__PURE__ */ new Set();
+		this.requirements = /* @__PURE__ */ new Set();
+	}
+	addTag(tag) {
+		this.tags.add(tag.value);
+	}
+	removeTag(tag) {
+		this.tags.delete(tag.value);
+	}
+	getTags() {
+		return Array.from(this.tags).map((t) => new Tag(t));
+	}
+	addRequirement(skillId) {
+		this.requirements.add(skillId);
+	}
+	getRequirements() {
+		return Array.from(this.requirements);
+	}
+	equals(other) {
+		return this.id === other.id;
+	}
+};
+//#endregion
+//#region src/utils/frontmatter.ts
+function parseFrontmatter(content) {
+	const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
+	if (!match) return {};
+	const result = {};
+	for (const line of match[1].split("\n")) {
+		const colonIdx = line.indexOf(":");
+		if (colonIdx > 0) {
+			const key = line.slice(0, colonIdx).trim();
+			const valueStr = line.slice(colonIdx + 1).trim();
+			if (key === "tags" || key === "requires") {
+				let cleaned = valueStr;
+				if (cleaned.startsWith("[") && cleaned.endsWith("]")) cleaned = cleaned.slice(1, -1);
+				result[key] = cleaned.split(",").map((t) => t.trim()).filter(Boolean);
+			} else result[key] = valueStr;
+		}
+	}
+	return result;
+}
+/**
+* Serialize object thành YAML frontmatter và gắn với body content.
+*/
+function serializeFrontmatter(frontmatter, body) {
+	const lines = ["---"];
+	if (frontmatter.name) lines.push(`name: ${frontmatter.name}`);
+	if (frontmatter.description) lines.push(`description: ${frontmatter.description}`);
+	if (frontmatter.tags && frontmatter.tags.length > 0) lines.push(`tags: [${frontmatter.tags.join(", ")}]`);
+	if (frontmatter.requires && frontmatter.requires.length > 0) lines.push(`requires: [${frontmatter.requires.join(", ")}]`);
+	lines.push("---");
+	return `${lines.join("\n")}\n\n${body.trim()}`;
+}
+function formatSkillAsMarkdown(skill) {
+	return serializeFrontmatter({
+		name: skill.name,
+		description: skill.description.split("\n")[0] || "",
+		tags: skill.getTags().map((t) => t.value),
+		requires: skill.getRequirements()
+	}, skill.content || "No content yet.");
+}
+/**
+* Bóc tách cả frontmatter và phần body của file markdown một cách chuẩn xác,
+* hỗ trợ linh hoạt các ngắt dòng.
+*/
+function parseSkillFile(content) {
+	const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+	if (!match) return {
+		meta: parseFrontmatter(content),
+		body: content.trim()
+	};
+	const frontmatterStr = match[1];
+	const body = content.slice(match[0].length).trim();
+	const result = {};
+	for (const line of frontmatterStr.split(/\r?\n/)) {
+		const colonIdx = line.indexOf(":");
+		if (colonIdx > 0) {
+			const key = line.slice(0, colonIdx).trim();
+			const valueStr = line.slice(colonIdx + 1).trim();
+			if (key === "tags" || key === "requires") {
+				let cleaned = valueStr;
+				if (cleaned.startsWith("[") && cleaned.endsWith("]")) cleaned = cleaned.slice(1, -1);
+				result[key] = cleaned.split(",").map((t) => t.trim()).filter(Boolean);
+			} else result[key] = valueStr;
+		}
+	}
+	return {
+		meta: result,
+		body
+	};
+}
+//#endregion
+//#region src/application/SkillApplicationService.ts
+var SkillApplicationService = class {
+	skillRepo;
+	constructor(skillRepo) {
+		this.skillRepo = skillRepo;
+	}
+	async createSkill(skillId, sourceFilePath, extraTags = [], overwrite = false) {
+		if (await this.skillRepo.findById(skillId) && !overwrite) throw new Error(`Skill already exists: ${skillId}`);
+		const { meta, body } = parseSkillFile(await fs.readFile(sourceFilePath, "utf8"));
+		let description = meta.description || "";
+		if (!description) {
+			description = body.slice(0, 150).replace(/\n/g, " ").trim();
+			if (body.length > 150) description += "...";
+		}
+		const skill = new Skill(skillId, description, body);
+		if (Array.isArray(meta.tags)) for (const t of meta.tags) skill.addTag(new Tag(t));
+		if (Array.isArray(meta.requires)) for (const r of meta.requires) skill.addRequirement(r);
+		for (const t of extraTags) skill.addTag(new Tag(t));
+		await this.skillRepo.save(skill);
+		return skill;
+	}
+	/** Tạo skill mới từ nội dung đã được sinh sẵn (template-generated). */
+	async createSkillFromContent(skillId, content, overwrite = false) {
+		if (await this.skillRepo.findById(skillId) && !overwrite) throw new Error(`Skill already exists: ${skillId}`);
+		const { meta, body } = parseSkillFile(content);
+		let description = meta.description || "";
+		if (!description) {
+			description = body.slice(0, 150).replace(/\n/g, " ").trim();
+			if (body.length > 150) description += "...";
+		}
+		const skill = new Skill(skillId, description, body);
+		if (Array.isArray(meta.tags)) for (const t of meta.tags) skill.addTag(new Tag(t));
+		if (Array.isArray(meta.requires)) for (const r of meta.requires) skill.addRequirement(r);
+		await this.skillRepo.save(skill);
+		return skill;
+	}
+	/** Append một dòng bài học vào skill. Tự tạo skill mới nếu chưa tồn tại. */
+	async appendLesson(skillId, lesson, initialContent) {
+		const newEntry = `- **[${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}]**: ${lesson}`;
+		let skill = await this.skillRepo.findById(skillId);
+		const isNew = !skill;
+		if (!skill) {
+			const { meta, body } = parseSkillFile(initialContent);
+			let description = meta.description || "";
+			if (!description) {
+				description = body.slice(0, 150).replace(/\n/g, " ").trim();
+				if (body.length > 150) description += "...";
+			}
+			skill = new Skill(skillId, description, body);
+			if (Array.isArray(meta.tags)) for (const t of meta.tags) skill.addTag(new Tag(t));
+		} else skill.content = `${skill.content.trimEnd()}\n${newEntry}\n`;
+		await this.skillRepo.save(skill);
+		return {
+			skill,
+			isNew
+		};
+	}
+	/** Tìm kiếm skills theo keyword trong tên và nội dung. */
+	async searchSkills(keyword, tag) {
+		const allSkills = await this.skillRepo.findAll();
+		const kw = keyword.toLowerCase();
+		return allSkills.filter((s) => {
+			if (tag) return s.getTags().some((t) => t.value === tag.toLowerCase());
+			return true;
+		}).map((s) => ({
+			id: s.id,
+			matchedInName: s.id.toLowerCase().includes(kw),
+			matchedInContent: s.description.toLowerCase().includes(kw) || s.content.toLowerCase().includes(kw)
+		})).filter((r) => r.matchedInName || r.matchedInContent);
+	}
+	async deleteSkill(skillId) {
+		if (!await this.skillRepo.findById(skillId)) throw new Error(`Skill not found: ${skillId}`);
+		await this.skillRepo.delete(skillId);
+	}
+	async getSkill(skillId) {
+		return await this.skillRepo.findById(skillId);
+	}
+	async addTagsToSkill(skillId, tagNames) {
+		const skill = await this.skillRepo.findById(skillId);
+		if (!skill) throw new Error(`Skill not found: ${skillId}`);
+		for (const tagName of tagNames) skill.addTag(new Tag(tagName));
+		await this.skillRepo.save(skill);
+		return skill;
+	}
+	async removeTagFromSkill(skillId, tagName) {
+		const skill = await this.skillRepo.findById(skillId);
+		if (!skill) throw new Error(`Skill not found: ${skillId}`);
+		skill.removeTag(new Tag(tagName));
+		await this.skillRepo.save(skill);
+		return skill;
+	}
+	async getAllSkills() {
+		return await this.skillRepo.findAll();
+	}
+	async getTagsOverview() {
+		const allSkills = await this.skillRepo.findAll();
+		const tagMap = /* @__PURE__ */ new Map();
+		const untagged = [];
+		for (const skill of allSkills) {
+			const tags = skill.getTags();
+			if (tags.length === 0) untagged.push(skill.id);
+			else for (const tag of tags) {
+				const val = tag.value;
+				if (!tagMap.has(val)) tagMap.set(val, []);
+				tagMap.get(val)?.push(skill.id);
+			}
+		}
+		return {
+			tagMap,
+			untagged
+		};
+	}
+	async renameTag(oldName, newName) {
+		const allSkills = await this.skillRepo.findAll();
+		const oldTag = new Tag(oldName);
+		const newTag = new Tag(newName);
+		let affectedCount = 0;
+		for (const skill of allSkills) if (skill.getTags().some((t) => t.equals(oldTag))) {
+			skill.removeTag(oldTag);
+			skill.addTag(newTag);
+			await this.skillRepo.save(skill);
+			affectedCount++;
+		}
+		return affectedCount;
+	}
+};
+//#endregion
+//#region src/infrastructure/FileSystemSkillRepository.ts
+var FileSystemSkillRepository = class {
+	baseDir;
+	constructor(baseDir) {
+		this.baseDir = baseDir;
+	}
+	getFilePath(id) {
+		const fullPath = path.join(this.baseDir, `${id}.md`);
+		if (!fullPath.startsWith(path.normalize(this.baseDir))) throw new Error("Invalid skill ID: Path traversal detected");
+		return fullPath;
+	}
+	async findById(id) {
+		const filePath = this.getFilePath(id);
+		try {
+			const content = await fs.readFile(filePath, "utf-8");
+			return this.mapToEntity(id, content);
+		} catch (error) {
+			if (error.code === "ENOENT") return null;
+			throw error;
+		}
+	}
+	async findAll() {
+		try {
+			const promises = (await fs.readdir(this.baseDir, { withFileTypes: true })).filter((entry) => entry.isFile() && entry.name.endsWith(".md")).map((entry) => this.findById(entry.name.replace(/\.md$/, "")));
+			return (await Promise.all(promises)).filter((s) => s !== null);
+		} catch (error) {
+			if (error.code === "ENOENT") return [];
+			throw error;
+		}
+	}
+	async save(skill) {
+		await fs.mkdir(this.baseDir, { recursive: true });
+		const filePath = this.getFilePath(skill.id);
+		const newContent = this.mapToMarkdown(skill);
+		await fs.writeFile(filePath, newContent, "utf-8");
+	}
+	async delete(id) {
+		const filePath = this.getFilePath(id);
+		try {
+			await fs.rm(filePath, { force: true });
+		} catch (error) {
+			if (error.code !== "ENOENT") throw error;
+		}
+	}
+	async exists(id) {
+		const filePath = this.getFilePath(id);
+		try {
+			await fs.access(filePath);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+	mapToEntity(id, content) {
+		const { meta, body } = parseSkillFile(content);
+		let description = meta.description || "";
+		if (!description) {
+			description = body.slice(0, 150).replace(/\n/g, " ").trim();
+			if (body.length > 150) description += "...";
+		}
+		const skill = new Skill(id, description, body);
+		if (meta.tags && Array.isArray(meta.tags)) for (const t of meta.tags) skill.addTag(new Tag(t));
+		if (meta.requires && Array.isArray(meta.requires)) for (const r of meta.requires) skill.addRequirement(r);
+		return skill;
+	}
+	mapToMarkdown(skill) {
+		return serializeFrontmatter({
+			name: skill.name,
+			description: skill.description.split("\n")[0] || "",
+			tags: skill.getTags().map((t) => t.value),
+			requires: skill.getRequirements()
+		}, skill.content);
+	}
+};
+//#endregion
+//#region src/policies/git-sync.ts
+/**
+* Business Rule: Git sync cho skill registry.
+* Transparent — lỗi git không làm crash CLI, chỉ silently fail.
+* Trả về boolean để caller biết có sync thành công không.
+*/
+function isGitRepo(ctx) {
+	return fs$1.existsSync(path.join(ctx.skillsDir, ".git"));
+}
+function runGit(ctx, args) {
+	try {
+		if (!isGitRepo(ctx)) return false;
+		execFileSync("git", args, {
+			cwd: ctx.skillsDir,
+			stdio: "ignore",
+			timeout: 15e3,
+			env: {
+				...process.env,
+				GIT_TERMINAL_PROMPT: "0"
+			}
+		});
+		return true;
+	} catch (_err) {
+		if (args.includes("--rebase")) try {
+			execFileSync("git", ["rebase", "--abort"], {
+				cwd: ctx.skillsDir,
+				stdio: "ignore"
+			});
+		} catch {}
+		return false;
+	}
+}
+/** Pull về từ remote trước khi đọc */
+function syncPull(ctx) {
+	return runGit(ctx, [
+		"pull",
+		"origin",
+		"main",
+		"--rebase"
+	]);
+}
+/** Commit và push sau khi ghi */
+function syncPush(ctx, message) {
+	const added = runGit(ctx, ["add", "*.md"]);
+	const committed = runGit(ctx, [
+		"commit",
+		"-m",
+		message
+	]);
+	const pushed = runGit(ctx, [
+		"push",
+		"origin",
+		"main"
+	]);
+	return added && committed && pushed;
+}
+/** Khởi tạo git repo và link với remote */
+function initSync(ctx, remoteUrl) {
+	if (!fs$1.existsSync(ctx.skillsDir)) fs$1.mkdirSync(ctx.skillsDir, { recursive: true });
+	const safeUrl = remoteUrl.replace(/https?:\/\/[^@]+@/, "https://***@");
+	try {
+		if (!isGitRepo(ctx)) {
+			execFileSync("git", ["init"], {
+				cwd: ctx.skillsDir,
+				stdio: "ignore"
+			});
+			try {
+				execFileSync("git", [
+					"commit",
+					"--allow-empty",
+					"-m",
+					"Initial commit"
+				], {
+					cwd: ctx.skillsDir,
+					stdio: "pipe"
+				});
+			} catch (err) {
+				if (err.stderr?.toString().includes("Please tell me who you are")) return {
+					ok: false,
+					message: "Lỗi Git: Bạn chưa thiết lập danh tính Git. Hãy chạy `git config --global user.name 'Tên của bạn'` và `git config --global user.email 'Email'` trước."
+				};
+			}
+		}
+		try {
+			execFileSync("git", [
+				"remote",
+				"set-url",
+				"origin",
+				remoteUrl
+			], {
+				cwd: ctx.skillsDir,
+				stdio: "ignore"
+			});
+		} catch {
+			try {
+				execFileSync("git", [
+					"remote",
+					"add",
+					"origin",
+					remoteUrl
+				], {
+					cwd: ctx.skillsDir,
+					stdio: "ignore"
+				});
+			} catch {}
+		}
+		execFileSync("git", [
+			"branch",
+			"-M",
+			"main"
+		], {
+			cwd: ctx.skillsDir,
+			stdio: "ignore"
+		});
+		try {
+			execFileSync("git", [
+				"push",
+				"-u",
+				"origin",
+				"main"
+			], {
+				cwd: ctx.skillsDir,
+				stdio: "ignore",
+				timeout: 15e3,
+				env: {
+					...process.env,
+					GIT_TERMINAL_PROMPT: "0"
+				}
+			});
+			return {
+				ok: true,
+				message: `Thiết lập Git Sync thành công với remote: ${safeUrl}`
+			};
+		} catch {
+			return {
+				ok: false,
+				message: `Thiết lập thất bại (push bị từ chối). Repo ${safeUrl} có thể đã chứa dữ liệu, hãy clone thủ công hoặc kiểm tra quyền truy cập.`
+			};
+		}
+	} catch (err) {
+		return {
+			ok: false,
+			message: `Lỗi khi thiết lập Git: ${err instanceof Error ? err.message : String(err)}`
+		};
+	}
+}
+//#endregion
 //#region src/policies/name-validation.ts
 /**
 * Business Rule: Validate và sanitize tên skill.
@@ -95,24 +564,362 @@ function handleError(err) {
 }
 //#endregion
 //#region src/commands/add.ts
-function runAdd(ctx, rawName, filePath, opts) {
+async function runAdd(ctx, rawName, filePath, opts) {
 	try {
 		const name = validateSkillName(rawName);
 		if (!opts.noSync) syncPull(ctx);
-		if (skillExists(ctx, name) && !opts.force) {
+		const repo = new FileSystemSkillRepository(ctx.skillsDir);
+		const service = new SkillApplicationService(repo);
+		if (await repo.exists(name) && !opts.force) {
 			warn(`Skill "${name}" đã tồn tại. Dùng --force để ghi đè.`);
 			process.exit(1);
 		}
-		if (skillExists(ctx, name) && opts.force) warn(`Đang ghi đè skill "${name}"...`);
-		addSkill(ctx, name, filePath, {
-			overwrite: opts.force,
-			tags: opts.tags
-		});
-		success(`Đã thêm kỹ năng "${name}" vào kho lưu trữ!`);
-		if (!opts.noSync) syncPush(ctx, `Auto-sync: Add skill ${name}`);
+		if (await repo.exists(name) && opts.force) warn(`Đang ghi đè skill "${name}"...`);
+		await service.createSkill(name, filePath, opts.tags || [], opts.force);
+		success(`Đã thêm/cập nhật kỹ năng "${name}".`);
+		if (!opts.noSync) syncPush(ctx, `Auto-sync: Add/update skill ${name}`);
 	} catch (err) {
 		handleError(err);
 	}
+}
+//#endregion
+//#region src/policies/text-search.ts
+const STOPWORDS = /* @__PURE__ */ new Set([
+	"a",
+	"an",
+	"the",
+	"is",
+	"are",
+	"was",
+	"were",
+	"be",
+	"been",
+	"being",
+	"have",
+	"has",
+	"had",
+	"do",
+	"does",
+	"did",
+	"will",
+	"would",
+	"could",
+	"should",
+	"may",
+	"might",
+	"shall",
+	"can",
+	"need",
+	"dare",
+	"ought",
+	"used",
+	"to",
+	"of",
+	"in",
+	"for",
+	"on",
+	"with",
+	"at",
+	"by",
+	"from",
+	"as",
+	"into",
+	"through",
+	"during",
+	"before",
+	"after",
+	"above",
+	"below",
+	"between",
+	"out",
+	"off",
+	"over",
+	"under",
+	"again",
+	"further",
+	"then",
+	"once",
+	"here",
+	"there",
+	"when",
+	"where",
+	"why",
+	"how",
+	"all",
+	"both",
+	"each",
+	"few",
+	"more",
+	"most",
+	"other",
+	"some",
+	"such",
+	"no",
+	"nor",
+	"not",
+	"only",
+	"own",
+	"same",
+	"so",
+	"than",
+	"too",
+	"very",
+	"just",
+	"because",
+	"but",
+	"and",
+	"or",
+	"if",
+	"while",
+	"about",
+	"up",
+	"its",
+	"it",
+	"this",
+	"that",
+	"these",
+	"those",
+	"i",
+	"me",
+	"my",
+	"we",
+	"our",
+	"you",
+	"your",
+	"he",
+	"him",
+	"his",
+	"she",
+	"her",
+	"they",
+	"them",
+	"their",
+	"what",
+	"which",
+	"who",
+	"whom",
+	"và",
+	"hoặc",
+	"của",
+	"là",
+	"các",
+	"những",
+	"cho",
+	"để",
+	"trong",
+	"trên",
+	"dưới",
+	"với",
+	"như",
+	"một",
+	"sẽ",
+	"đã",
+	"đang",
+	"thì",
+	"mà",
+	"có",
+	"không",
+	"khi",
+	"làm"
+]);
+/** Tách text thành tokens đã normalize */
+function tokenize(text) {
+	const words = text.toLowerCase().match(/[\p{L}\d-]+/gu);
+	if (!words) return [];
+	return words.filter((w) => w.length > 1 && !STOPWORDS.has(w));
+}
+const prevRow = /* @__PURE__ */ new Int32Array(256);
+const currRow = /* @__PURE__ */ new Int32Array(256);
+/** Tính Levenshtein distance giữa 2 string */
+function levenshtein(a, b) {
+	const la = a.length;
+	const lb = b.length;
+	if (la === 0) return lb;
+	if (lb === 0) return la;
+	let prev = lb < 256 ? prevRow : new Int32Array(lb + 1);
+	let curr = lb < 256 ? currRow : new Int32Array(lb + 1);
+	for (let i = 0; i <= lb; i++) prev[i] = i;
+	for (let i = 1; i <= la; i++) {
+		curr[0] = i;
+		for (let j = 1; j <= lb; j++) {
+			const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+			curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+		}
+		const temp = prev;
+		prev = curr;
+		curr = temp;
+	}
+	return prev[lb];
+}
+/** Kiểm tra fuzzy match: distance <= threshold dựa trên độ dài từ */
+function isFuzzyMatch(word, target, maxRatio = .3) {
+	const maxDist = Math.max(1, Math.floor(target.length * maxRatio));
+	return levenshtein(word, target) <= maxDist;
+}
+/**
+* Trích snippet chứa từ khóa (±context words xung quanh).
+* Trả về dòng đầu tiên chứa bất kỳ query token nào.
+*/
+function extractSnippet(content, queryTokens, maxLen = 120) {
+	const lines = content.split("\n").filter((l) => l.trim().length > 0);
+	const lowerTokens = queryTokens.map((t) => t.toLowerCase());
+	for (const line of lines) {
+		const lowerLine = line.toLowerCase();
+		if (lowerTokens.some((t) => lowerLine.includes(t))) {
+			const trimmed = line.trim();
+			if (trimmed.length <= maxLen) return trimmed;
+			return `${trimmed.slice(0, maxLen - 3)}...`;
+		}
+	}
+	const first = lines.find((l) => !l.startsWith("---"))?.trim() ?? "";
+	if (first.length <= maxLen) return first;
+	return `${first.slice(0, maxLen - 3)}...`;
+}
+/** Tính term frequency: số lần xuất hiện / tổng tokens */
+function tf(term, tokens) {
+	if (tokens.length === 0) return 0;
+	return tokens.filter((t) => t === term).length / tokens.length;
+}
+/** Tính inverse document frequency: log(N / df) */
+function idf(term, docs) {
+	const df = docs.filter((d) => d.tokens.includes(term)).length;
+	if (df === 0) return 0;
+	return Math.log(docs.length / df);
+}
+/** Tính TF-IDF + fuzzy score cho một document với query tokens */
+function scoreDocAgainstQuery(doc, queryTokens, idfScores, allDocs) {
+	let tfidfScore = 0;
+	let exactHits = 0;
+	let fuzzyHits = 0;
+	for (const term of queryTokens) {
+		const termTf = tf(term, doc.tokens);
+		const termIdf = idfScores.get(term) ?? 0;
+		tfidfScore += termTf * termIdf;
+		if (termTf > 0) exactHits++;
+		else {
+			const fuzzyToken = doc.tokens.find((t) => isFuzzyMatch(t, term));
+			if (fuzzyToken) {
+				fuzzyHits++;
+				const fuzzyIdf = idf(fuzzyToken, allDocs);
+				tfidfScore += .3 * (fuzzyIdf > 0 ? fuzzyIdf : 1);
+			}
+		}
+	}
+	return {
+		tfidfScore,
+		exactHits,
+		fuzzyHits
+	};
+}
+/** Normalize raw TF-IDF score to 0..1 range với name bonus */
+function normalizeScore(rawScore, queryTokens, idfScores, docName) {
+	const maxPossible = queryTokens.reduce((sum, t) => sum + (idfScores.get(t) ?? 0), 0);
+	const normalized = maxPossible > 0 ? Math.min(1, rawScore / maxPossible) : Math.min(1, rawScore);
+	const nameBonus = queryTokens.some((t) => docName.toLowerCase().includes(t)) ? .2 : 0;
+	return Math.min(1, normalized + nameBonus);
+}
+/** Phân loại match type dựa trên exact/fuzzy hit counts */
+function classifyMatchType(exactHits, fuzzyHits) {
+	if (exactHits > 0 && fuzzyHits === 0) return "exact";
+	if (fuzzyHits > 0 && exactHits === 0) return "fuzzy";
+	return "tfidf";
+}
+const docTokenCache = /* @__PURE__ */ new Map();
+/**
+* Tìm kiếm thông minh với TF-IDF + fuzzy matching.
+* @param docs Map<skillName, fileContent>
+* @param query Chuỗi tìm kiếm
+* @returns Kết quả sắp xếp theo score giảm dần
+*/
+function searchWithTfIdf(docs, query) {
+	const queryTokens = tokenize(query);
+	if (queryTokens.length === 0) return [];
+	const docTokensList = [];
+	for (const [name, content] of docs) {
+		let tokens;
+		const cached = docTokenCache.get(name);
+		if (cached && cached.content === content) tokens = cached.tokens;
+		else {
+			tokens = tokenize(`${name} ${content}`);
+			docTokenCache.set(name, {
+				content,
+				tokens
+			});
+		}
+		docTokensList.push({
+			name,
+			tokens,
+			content
+		});
+	}
+	const idfScores = /* @__PURE__ */ new Map();
+	for (const term of queryTokens) idfScores.set(term, idf(term, docTokensList));
+	const results = [];
+	for (const doc of docTokensList) {
+		const { tfidfScore, exactHits, fuzzyHits } = scoreDocAgainstQuery(doc, queryTokens, idfScores, docTokensList);
+		if (tfidfScore <= 0) continue;
+		const finalScore = normalizeScore(tfidfScore, queryTokens, idfScores, doc.name);
+		results.push({
+			name: doc.name,
+			score: Math.round(finalScore * 100) / 100,
+			matchType: classifyMatchType(exactHits, fuzzyHits),
+			snippet: extractSnippet(doc.content, queryTokens)
+		});
+	}
+	results.sort((a, b) => b.score - a.score);
+	return results;
+}
+//#endregion
+//#region src/policies/skill-registry.ts
+var SkillRegistryError = class extends Error {
+	code;
+	constructor(message, code) {
+		super(message);
+		this.code = code;
+		this.name = "SkillRegistryError";
+	}
+};
+/** Đảm bảo thư mục kho skill tồn tại */
+function ensureSkillsDir(ctx) {
+	if (!fs$1.existsSync(ctx.skillsDir)) fs$1.mkdirSync(ctx.skillsDir, { recursive: true });
+}
+/** Lấy path của một skill file */
+function skillPath(ctx, name) {
+	return path.join(ctx.skillsDir, `${name}.md`);
+}
+/** Kiểm tra skill có tồn tại không */
+function skillExists(ctx, name) {
+	return fs$1.existsSync(skillPath(ctx, name));
+}
+/** Liệt kê tất cả skills */
+function listSkills(ctx) {
+	ensureSkillsDir(ctx);
+	return fs$1.readdirSync(ctx.skillsDir).filter((f) => f.endsWith(".md")).map((f) => ({
+		name: f.replace(/\.md$/, ""),
+		path: path.join(ctx.skillsDir, f)
+	}));
+}
+/** Đọc nội dung một skill */
+function getSkill(ctx, name) {
+	const p = skillPath(ctx, name);
+	if (!fs$1.existsSync(p)) throw new SkillRegistryError(`Không tìm thấy skill "${name}".`, "NOT_FOUND");
+	return fs$1.readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+}
+/** Tìm kiếm thông minh với TF-IDF + fuzzy matching */
+function searchSkillsSemantic(ctx, query, tag) {
+	ensureSkillsDir(ctx);
+	const lowerTag = tag?.toLowerCase();
+	const files = fs$1.readdirSync(ctx.skillsDir).filter((f) => f.endsWith(".md"));
+	const docs = /* @__PURE__ */ new Map();
+	for (const file of files) {
+		const name = file.replace(/\.md$/, "");
+		const content = fs$1.readFileSync(path.join(ctx.skillsDir, file), "utf8");
+		if (lowerTag) {
+			if (!(parseFrontmatter(content).tags ?? []).map((t) => t.toLowerCase()).includes(lowerTag)) continue;
+		}
+		docs.set(name, content);
+	}
+	return searchWithTfIdf(docs, query);
 }
 //#endregion
 //#region src/policies/analytics.ts
@@ -121,9 +928,9 @@ function getAnalyticsPath(ctx) {
 }
 function readAnalytics(ctx) {
 	const p = getAnalyticsPath(ctx);
-	if (!fs.existsSync(p)) return {};
+	if (!fs$1.existsSync(p)) return {};
 	try {
-		const raw = fs.readFileSync(p, "utf-8");
+		const raw = fs$1.readFileSync(p, "utf-8");
 		return JSON.parse(raw);
 	} catch {
 		return {};
@@ -131,8 +938,8 @@ function readAnalytics(ctx) {
 }
 function writeAnalytics(ctx, data) {
 	const p = getAnalyticsPath(ctx);
-	if (!fs.existsSync(ctx.skillsDir)) fs.mkdirSync(ctx.skillsDir, { recursive: true });
-	fs.writeFileSync(p, JSON.stringify(data, null, 2), "utf-8");
+	if (!fs$1.existsSync(ctx.skillsDir)) fs$1.mkdirSync(ctx.skillsDir, { recursive: true });
+	fs$1.writeFileSync(p, JSON.stringify(data, null, 2), "utf-8");
 }
 function trackUsage(ctx, skillName) {
 	const data = readAnalytics(ctx);
@@ -175,21 +982,24 @@ function auditSkills(ctx) {
 }
 //#endregion
 //#region src/commands/apply.ts
-function runApply(ctx, rawName) {
+async function runApply(ctx, rawName) {
 	try {
 		const name = validateSkillName(rawName);
-		const sourcePath = skillPath(ctx, name);
-		if (!fs.existsSync(sourcePath)) handleError(/* @__PURE__ */ new Error(`Không tìm thấy kỹ năng "${name}" trong kho tổng.`));
+		if (!await new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir)).getSkill(name)) {
+			handleError(/* @__PURE__ */ new Error(`Không tìm thấy kỹ năng "${name}" trong kho tổng.`));
+			return;
+		}
+		const sourcePath = path.join(ctx.skillsDir, `${name}.md`);
 		const targetDir = path.join(process.cwd(), ".agents", "skills", name);
 		const targetPath = path.join(targetDir, "SKILL.md");
-		fs.mkdirSync(targetDir, { recursive: true });
-		fs.rmSync(targetPath, { force: true });
+		fs$1.mkdirSync(targetDir, { recursive: true });
+		fs$1.rmSync(targetPath, { force: true });
 		let method = "Copy";
 		try {
-			fs.symlinkSync(sourcePath, targetPath, "file");
+			fs$1.symlinkSync(sourcePath, targetPath, "file");
 			method = "Symlink";
 		} catch {
-			fs.copyFileSync(sourcePath, targetPath);
+			fs$1.copyFileSync(sourcePath, targetPath);
 			method = "Copy";
 		}
 		trackUsage(ctx, name);
@@ -365,7 +1175,7 @@ function listTemplates() {
 }
 //#endregion
 //#region src/commands/create.ts
-function runCreate(ctx, rawName, opts) {
+async function runCreate(ctx, rawName, opts) {
 	try {
 		if (opts.listTemplates) {
 			const templates = listTemplates();
@@ -377,26 +1187,31 @@ function runCreate(ctx, rawName, opts) {
 			}
 			return;
 		}
-		if (!rawName) handleError(/* @__PURE__ */ new Error("Vui lòng cung cấp tên skill. Ví dụ: ai-skills create my-skill"));
-		const name = validateSkillName(rawName);
-		if (skillExists(ctx, name) && !opts.force) {
-			warn(`Skill "${name}" đã tồn tại. Dùng --force để ghi đè.`);
-			process.exit(1);
+		if (!rawName) {
+			handleError(/* @__PURE__ */ new Error("Vui lòng cung cấp tên skill. Ví dụ: ai-skills create my-skill"));
+			return;
 		}
-		if (skillExists(ctx, name) && opts.force) warn(`Đang ghi đè skill "${name}"...`);
+		const name = validateSkillName(rawName);
 		const templateId = opts.template ?? "coding-guide";
 		const template = getTemplate(templateId);
 		if (!template) {
 			const available = listTemplates().map((t) => t.id).join(", ");
 			handleError(/* @__PURE__ */ new Error(`Template "${templateId}" không tồn tại. Các template có sẵn: ${available}`));
+			return;
 		}
+		const repo = new FileSystemSkillRepository(ctx.skillsDir);
+		const service = new SkillApplicationService(repo);
+		if (await repo.exists(name) && !opts.force) {
+			warn(`Skill "${name}" đã tồn tại. Dùng --force để ghi đè.`);
+			process.exit(1);
+		}
+		if (await repo.exists(name) && opts.force) warn(`Đang ghi đè skill "${name}"...`);
 		const description = opts.description ?? `Kỹ năng ${name}`;
 		const content = template.generate(name, description, opts.tags);
-		ensureSkillsDir(ctx);
-		fs.writeFileSync(skillPath(ctx, name), content, "utf8");
+		await service.createSkillFromContent(name, content, opts.force);
 		success(`Đã tạo kỹ năng "${name}" từ template "${template.id}"!`);
-		info(`Đường dẫn: ${skillPath(ctx, name)}`);
-		info(`Chỉnh sửa file và thêm nội dung phù hợp với dự án của bạn.`);
+		info(`Chỉnh sửa file tại: ${ctx.skillsDir}/${name}.md`);
+		info(`Thêm nội dung phù hợp với dự án của bạn.`);
 		syncPush(ctx, `Auto-sync: Create skill ${name}`);
 	} catch (err) {
 		handleError(err);
@@ -421,8 +1236,8 @@ function generateDiff(skillName, contentOld, contentNew) {
 	const fileA = path.join(tmpDir, `${skillName}_old_${sessionId}.md`);
 	const fileB = path.join(tmpDir, `${skillName}_new_${sessionId}.md`);
 	try {
-		fs.writeFileSync(fileA, contentOld, "utf8");
-		fs.writeFileSync(fileB, contentNew, "utf8");
+		fs$1.writeFileSync(fileA, contentOld, "utf8");
+		fs$1.writeFileSync(fileB, contentNew, "utf8");
 		try {
 			execSync(`git diff --no-index --color=always "${fileA}" "${fileB}"`, {
 				encoding: "utf8",
@@ -434,33 +1249,45 @@ function generateDiff(skillName, contentOld, contentNew) {
 			});
 			return "";
 		} catch (err) {
-			if (err.status === 1 && err.stdout) {
-				let diffStr = err.stdout;
+			const execErr = err;
+			if (execErr.status === 1 && execErr.stdout) {
+				let diffStr = execErr.stdout;
 				diffStr = diffStr.replace(new RegExp(`a/${fileA.replace(/\\/g, "/")}`, "g"), `a/${skillName}.md (current)`);
 				diffStr = diffStr.replace(new RegExp(`b/${fileB.replace(/\\/g, "/")}`, "g"), `b/${skillName}.md (incoming)`);
 				diffStr = diffStr.replace(new RegExp(`--- a/.*${skillName}_old.*\\.md`), `--- a/${skillName}.md (current)`);
 				diffStr = diffStr.replace(new RegExp(`\\+\\+\\+ b/.*${skillName}_new.*\\.md`), `+++ b/${skillName}.md (incoming)`);
 				return diffStr;
 			}
-			throw new DiffError(`Không thể chạy lệnh git diff. Vui lòng đảm bảo Git đã được cài đặt: ${err.message}`);
+			throw new DiffError(`Không thể chạy lệnh git diff. Vui lòng đảm bảo Git đã được cài đặt: ${execErr.message}`);
 		}
 	} finally {
-		if (fs.existsSync(fileA)) fs.unlinkSync(fileA);
-		if (fs.existsSync(fileB)) fs.unlinkSync(fileB);
+		if (fs$1.existsSync(fileA)) fs$1.unlinkSync(fileA);
+		if (fs$1.existsSync(fileB)) fs$1.unlinkSync(fileB);
 	}
 }
 //#endregion
 //#region src/commands/diff.ts
-function runDiff(ctx, name, filePath) {
+async function runDiff(ctx, name, filePath) {
 	try {
-		if (!skillExists(ctx, name)) fatal(`Không tìm thấy kỹ năng "${name}" trong kho lưu trữ.`);
+		const skill = await new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir)).getSkill(name);
+		if (!skill) {
+			fatal(`Không tìm thấy kỹ năng "${name}" trong kho lưu trữ.`);
+			return;
+		}
 		const absolutePath = path.resolve(process.cwd(), filePath);
-		if (!fs.existsSync(absolutePath)) fatal(`Không tìm thấy file "${filePath}" để so sánh.`);
-		const diffOutput = generateDiff(name, getSkill(ctx, name), fs.readFileSync(absolutePath, "utf8"));
+		if (!fs$1.existsSync(absolutePath)) {
+			fatal(`Không tìm thấy file "${filePath}" để so sánh.`);
+			return;
+		}
+		const currentContent = skill.content;
+		const diffOutput = generateDiff(name, currentContent, fs$1.readFileSync(absolutePath, "utf8"));
 		if (diffOutput) console.log(diffOutput);
 		else console.log(`Kỹ năng "${name}" không có thay đổi nào so với file "${filePath}".`);
 	} catch (err) {
-		if (err instanceof DiffError) fatal(err.message);
+		if (err instanceof DiffError) {
+			fatal(err.message);
+			return;
+		}
 		handleError(err);
 	}
 }
@@ -523,7 +1350,7 @@ function importBundle(ctx, bundle, opts = {}) {
 			continue;
 		}
 		try {
-			fs.writeFileSync(skillPath(ctx, skill.name), skill.content, "utf8");
+			fs$1.writeFileSync(skillPath(ctx, skill.name), skill.content, "utf8");
 			imported.push(skill.name);
 		} catch (err) {
 			throw new BundleError(`Lỗi khi ghi skill "${skill.name}": ${err instanceof Error ? err.message : String(err)}`, "IO_ERROR");
@@ -536,30 +1363,25 @@ function importBundle(ctx, bundle, opts = {}) {
 }
 //#endregion
 //#region src/commands/export.ts
-function runExport(ctx, outputFile, skills, opts) {
+async function runExport(ctx, outputFile, skills, opts) {
 	try {
-		const allSkills = listSkills(ctx);
+		const service = new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir));
+		const allSkills = await service.getAllSkills();
 		let toExport = [];
-		if (opts.all) toExport = allSkills.map((s) => s.name);
+		if (opts.all) toExport = allSkills.map((s) => s.id);
 		else if (opts.tag) {
 			const lowerTag = opts.tag.toLowerCase();
-			for (const skill of allSkills) {
-				const content = fs.readFileSync(skill.path, "utf8");
-				if ((parseFrontmatter(content).tags ?? []).map((t) => t.toLowerCase()).includes(lowerTag)) toExport.push(skill.name);
-			}
+			for (const skill of allSkills) if (skill.getTags().some((t) => t.value === lowerTag)) toExport.push(skill.id);
 		} else toExport = skills;
 		if (opts.withDeps) {
 			const visited = /* @__PURE__ */ new Set();
-			function addDeps(name) {
+			async function addDeps(name) {
 				if (visited.has(name)) return;
 				visited.add(name);
-				try {
-					const content = fs.readFileSync(path.join(ctx.skillsDir, `${name}.md`), "utf8");
-					const frontmatter = parseFrontmatter(content);
-					if (frontmatter.requires && Array.isArray(frontmatter.requires)) for (const req of frontmatter.requires) addDeps(req);
-				} catch {}
+				const dep = await service.getSkill(name);
+				if (dep) for (const req of dep.getRequirements()) await addDeps(req);
 			}
-			for (const s of toExport) addDeps(s);
+			for (const s of toExport) await addDeps(s);
 			toExport = Array.from(visited);
 		}
 		if (toExport.length === 0) {
@@ -569,12 +1391,168 @@ function runExport(ctx, outputFile, skills, opts) {
 		info(`Đang đóng gói ${toExport.length} skills...`);
 		const bundleStr = exportBundle(ctx, toExport);
 		const outputPath = path.resolve(process.cwd(), outputFile);
-		fs.writeFileSync(outputPath, bundleStr, "utf8");
+		fs$1.writeFileSync(outputPath, bundleStr, "utf8");
 		success(`Đã export ${toExport.length} skills ra file "${outputFile}".`);
 	} catch (err) {
-		if (err instanceof BundleError) fatal(err.message);
+		if (err instanceof BundleError) {
+			fatal(err.message);
+			return;
+		}
 		handleError(err);
 	}
+}
+//#endregion
+//#region src/policies/project-analyzer.ts
+/** Mapping: dependency name → framework/tool label */
+const FRAMEWORK_MAP = {
+	react: "react",
+	"react-dom": "react",
+	next: "nextjs",
+	vue: "vue",
+	nuxt: "nuxt",
+	svelte: "svelte",
+	"@sveltejs/kit": "sveltekit",
+	angular: "angular",
+	"@angular/core": "angular",
+	express: "express",
+	fastify: "fastify",
+	koa: "koa",
+	hono: "hono",
+	nestjs: "nestjs",
+	"@nestjs/core": "nestjs",
+	prisma: "prisma",
+	"@prisma/client": "prisma",
+	drizzle: "drizzle",
+	"drizzle-orm": "drizzle",
+	mongoose: "mongoose",
+	sequelize: "sequelize",
+	"socket.io": "socketio",
+	graphql: "graphql",
+	"@apollo/server": "apollo",
+	trpc: "trpc",
+	"@trpc/server": "trpc",
+	tailwindcss: "tailwind",
+	"styled-components": "styled-components",
+	electron: "electron",
+	"react-native": "react-native",
+	expo: "expo",
+	three: "threejs"
+};
+const TOOL_MAP = {
+	vitest: "vitest",
+	jest: "jest",
+	mocha: "mocha",
+	cypress: "cypress",
+	playwright: "playwright",
+	"@testing-library/react": "testing-library",
+	eslint: "eslint",
+	"@biomejs/biome": "biome",
+	prettier: "prettier",
+	typescript: "typescript",
+	tsx: "tsx",
+	tsdown: "tsdown",
+	tsup: "tsup",
+	vite: "vite",
+	webpack: "webpack",
+	esbuild: "esbuild",
+	rollup: "rollup",
+	commander: "commander",
+	yargs: "yargs",
+	zod: "zod",
+	joi: "joi",
+	dotenv: "dotenv",
+	husky: "husky",
+	"lint-staged": "lint-staged",
+	storybook: "storybook",
+	"@storybook/react": "storybook",
+	docker: "docker"
+};
+/** Đọc package.json nếu có */
+function readPackageJson(dir) {
+	const pkgPath = path.join(dir, "package.json");
+	if (!fs$1.existsSync(pkgPath)) return null;
+	try {
+		return JSON.parse(fs$1.readFileSync(pkgPath, "utf8"));
+	} catch {
+		return null;
+	}
+}
+/** Trích xuất dependencies từ package.json */
+function extractDeps(pkg) {
+	const deps = /* @__PURE__ */ new Set();
+	for (const key of [
+		"dependencies",
+		"devDependencies",
+		"optionalDependencies",
+		"peerDependencies"
+	]) {
+		const section = pkg[key];
+		if (section && typeof section === "object") for (const dep of Object.keys(section)) deps.add(dep);
+	}
+	return [...deps];
+}
+/** Detect frameworks từ dependency list */
+function detectFrameworks(deps) {
+	const frameworks = /* @__PURE__ */ new Set();
+	for (const dep of deps) {
+		const fw = FRAMEWORK_MAP[dep];
+		if (fw) frameworks.add(fw);
+	}
+	return [...frameworks].sort();
+}
+/** Detect tools từ dependency list */
+function detectTools(deps) {
+	const tools = /* @__PURE__ */ new Set();
+	for (const dep of deps) {
+		const tool = TOOL_MAP[dep];
+		if (tool) tools.add(tool);
+	}
+	return [...tools].sort();
+}
+/** Detect ngôn ngữ chính */
+function detectLanguage(dir, deps) {
+	if (deps.includes("typescript") || fs$1.existsSync(path.join(dir, "tsconfig.json"))) return "typescript";
+	if (fs$1.existsSync(path.join(dir, "package.json"))) return "javascript";
+	for (const marker of [
+		"requirements.txt",
+		"setup.py",
+		"pyproject.toml",
+		"Pipfile"
+	]) if (fs$1.existsSync(path.join(dir, marker))) return "python";
+	return "unknown";
+}
+/**
+* Phân tích dự án tại thư mục chỉ định.
+* Đọc package.json, kiểm tra cấu trúc thư mục, và detect tech stack.
+*/
+function analyzeProject(projectDir) {
+	const resolvedDir = path.resolve(projectDir);
+	const pkg = readPackageJson(resolvedDir);
+	const deps = pkg ? extractDeps(pkg) : [];
+	const dirName = path.basename(resolvedDir);
+	return {
+		name: pkg?.name ?? dirName,
+		language: detectLanguage(resolvedDir, deps),
+		frameworks: detectFrameworks(deps),
+		tools: detectTools(deps),
+		hasTests: [
+			"test",
+			"tests",
+			"__tests__",
+			"spec"
+		].some((d) => fs$1.existsSync(path.join(resolvedDir, d))),
+		hasCi: [
+			".github/workflows",
+			".gitlab-ci.yml",
+			".circleci",
+			"Jenkinsfile"
+		].some((p) => fs$1.existsSync(path.join(resolvedDir, p))),
+		hasDocker: [
+			"Dockerfile",
+			"docker-compose.yml",
+			"docker-compose.yaml"
+		].some((f) => fs$1.existsSync(path.join(resolvedDir, f)))
+	};
 }
 //#endregion
 //#region src/policies/registry-fetcher.ts
@@ -686,8 +1664,8 @@ async function writeSkill(ctx, entry, opts) {
 	}
 	process.stdout.write(`  ${c.dim("↓")}  Đang tải ${c.accent(entry.name)}...`);
 	const content = await downloadSkill(entry);
-	fs.mkdirSync(path.dirname(skillPath(ctx, entry.name)), { recursive: true });
-	fs.writeFileSync(skillPath(ctx, entry.name), content, "utf8");
+	fs$1.mkdirSync(path.dirname(skillPath(ctx, entry.name)), { recursive: true });
+	fs$1.writeFileSync(skillPath(ctx, entry.name), content, "utf8");
 	process.stdout.write(` ${c.ok("✓")}\n`);
 	return true;
 }
@@ -700,6 +1678,7 @@ async function runFetch(ctx, name, opts = {}) {
 		} catch (err) {
 			fatal(err instanceof FetchError ? err.message : String(err));
 		}
+		if (!manifest) return;
 		const entries = listRemoteSkills(manifest);
 		for (const e of entries) printSkillEntry(e, skillExists(ctx, e.name));
 		console.log(`\n${c.dim(`Tổng: ${entries.length} skills`)}`);
@@ -713,7 +1692,8 @@ async function runFetch(ctx, name, opts = {}) {
 		fatal(err instanceof FetchError ? err.message : String(err));
 		return;
 	}
-	console.log(`${c.ok("✓")} Kết nối thành công (${Object.keys(manifest.skills).length} skills có sẵn)\n`);
+	if (!manifest) return;
+	console.log(`${c.ok("✓")} Kết nối thành công (${Object.keys(manifest?.skills).length} skills có sẵn)\n`);
 	if (opts.auto) {
 		const profile = analyzeProject(process.cwd());
 		const keywords = [
@@ -765,12 +1745,15 @@ async function runFetch(ctx, name, opts = {}) {
 }
 //#endregion
 //#region src/commands/get.ts
-function runGet(ctx, rawName, options = {}) {
+async function runGet(ctx, rawName, options = {}) {
 	try {
 		const name = validateSkillName(rawName);
 		if (!options.noSync) syncPull(ctx);
+		const service = new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir));
 		if (!options.recursive) {
-			const content = getSkill(ctx, name);
+			const skill = await service.getSkill(name);
+			if (!skill) throw new Error(`Không tìm thấy kỹ năng: ${name}`);
+			const content = formatSkillAsMarkdown(skill);
 			trackUsage(ctx, name);
 			console.log(content);
 			return;
@@ -778,23 +1761,26 @@ function runGet(ctx, rawName, options = {}) {
 		const visited = /* @__PURE__ */ new Set();
 		const maxDepth = 2;
 		const output = [];
-		function fetchRecursive(currentName, depth) {
+		async function fetchRecursive(currentName, depth) {
 			if (visited.has(currentName) || depth > maxDepth) return;
 			visited.add(currentName);
 			try {
 				const validName = validateSkillName(currentName);
-				const content = getSkill(ctx, validName);
+				const skill = await service.getSkill(validName);
+				if (!skill) throw new Error("Not found");
+				const content = formatSkillAsMarkdown(skill);
 				trackUsage(ctx, validName);
 				output.push(`\n<!-- ===== BẮT ĐẦU SKILL: ${validName} ===== -->\n`);
 				output.push(content);
 				output.push(`\n<!-- ===== KẾT THÚC SKILL: ${validName} ===== -->\n`);
-				const frontmatter = parseFrontmatter(content);
-				if (frontmatter.requires && Array.isArray(frontmatter.requires)) for (const req of frontmatter.requires) fetchRecursive(req, depth + 1);
+				const reqs = skill.getRequirements();
+				if (reqs && reqs.length > 0) for (const req of reqs) await fetchRecursive(req, depth + 1);
 			} catch (e) {
-				output.push(`\n<!-- [LỖI] Không thể lấy phụ thuộc: ${currentName} (${e.message}) -->\n`);
+				const msg = e instanceof Error ? e.message : String(e);
+				output.push(`\n<!-- [LỖI] Không thể lấy phụ thuộc: ${currentName} (${msg}) -->\n`);
 			}
 		}
-		fetchRecursive(name, 0);
+		await fetchRecursive(name, 0);
 		console.log(output.join(""));
 	} catch (err) {
 		handleError(err);
@@ -811,9 +1797,8 @@ function runGraph(ctx) {
 		const nodes = [];
 		const edges = [];
 		for (const skill of skills) {
-			const skillName = typeof skill === "string" ? skill : skill.name;
-			const content = getSkill(ctx, skillName);
-			const attrs = parseFrontmatter(content).attributes || {};
+			const skillName = skill.name;
+			const attrs = parseFrontmatter(getSkill(ctx, skillName));
 			nodes.push({
 				id: skillName,
 				label: skillName,
@@ -845,8 +1830,8 @@ function runGraph(ctx) {
 					path.join(process.cwd(), "src", "viewer", "index.html")
 				];
 				let html = "";
-				for (const p of pathsToTry) if (fs.existsSync(p)) {
-					html = fs.readFileSync(p, "utf8");
+				for (const p of pathsToTry) if (fs$1.existsSync(p)) {
+					html = fs$1.readFileSync(p, "utf8");
 					break;
 				}
 				if (html) {
@@ -854,7 +1839,7 @@ function runGraph(ctx) {
 					res.end(html);
 				} else {
 					res.writeHead(404);
-					res.end("Viewer HTML not found. Looked in: " + pathsToTry.join(", "));
+					res.end(`Viewer HTML not found. Looked in: ${pathsToTry.join(", ")}`);
 				}
 				return;
 			}
@@ -879,27 +1864,33 @@ function runGraph(ctx) {
 }
 //#endregion
 //#region src/commands/import.ts
-function runImport(ctx, inputFile, opts) {
+async function runImport(ctx, inputFile, opts) {
 	try {
 		const inputPath = path.resolve(process.cwd(), inputFile);
-		if (!fs.existsSync(inputPath)) fatal(`Không tìm thấy file "${inputFile}".`);
-		const bundle = parseBundle(fs.readFileSync(inputPath, "utf8"));
+		if (!fs$1.existsSync(inputPath)) {
+			fatal(`Không tìm thấy file "${inputFile}".`);
+			return;
+		}
+		const bundle = parseBundle(fs$1.readFileSync(inputPath, "utf8"));
 		console.log(`Đọc bundle thành công (chứa ${bundle.skills.length} skills).`);
+		const service = new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir));
 		if (opts.diff) {
 			let hasDiff = false;
-			for (const skill of bundle.skills) if (skillExists(ctx, skill.name)) {
-				const currentContent = getSkill(ctx, skill.name);
-				const diffOutput = generateDiff(skill.name, currentContent, skill.content);
-				if (diffOutput) {
+			for (const skill of bundle.skills) {
+				const existing = await service.getSkill(skill.name);
+				if (existing) {
+					const diffOutput = generateDiff(skill.name, existing.content, skill.content);
+					if (diffOutput) {
+						hasDiff = true;
+						console.log(`\n${c.bold(`Sự khác biệt cho kỹ năng "${skill.name}":`)}`);
+						console.log(diffOutput);
+					}
+				} else {
 					hasDiff = true;
-					console.log(`\n${c.bold(`Sự khác biệt cho kỹ năng "${skill.name}":`)}`);
-					console.log(diffOutput);
+					console.log(`\n${c.ok("+")} Kỹ năng "${skill.name}" là kỹ năng mới (chưa tồn tại cục bộ).`);
 				}
-			} else {
-				hasDiff = true;
-				console.log(`\n${c.ok("+")} Kỹ năng "${skill.name}" là kỹ năng mới (chưa tồn tại cục bộ).`);
 			}
-			if (!hasDiff) console.log(`\nKhông có sự thay đổi nào cho các kỹ năng trong bundle.`);
+			if (!hasDiff) console.log("\nKhông có sự thay đổi nào cho các kỹ năng trong bundle.");
 			return;
 		}
 		const result = importBundle(ctx, bundle, { force: opts.force });
@@ -913,48 +1904,10 @@ function runImport(ctx, inputFile, opts) {
 			for (const name of result.skipped) console.log(`  ${c.dim("○")} ${name}`);
 		}
 	} catch (err) {
-		if (err instanceof BundleError) fatal(err.message);
-		handleError(err);
-	}
-}
-//#endregion
-//#region src/commands/learn.ts
-function runLearn(ctx, topic, lesson, options = {}) {
-	try {
-		ensureSkillsDir(ctx);
-		const cleanTopic = validateSkillName(topic.toLowerCase().replace(/[^a-z0-9_-]/g, "-"));
-		const skillName = `learned-${cleanTopic}`;
-		const filePath = skillPath(ctx, skillName);
-		const newEntry = `- **[${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}]**: ${lesson}\n`;
-		let content = "";
-		if (skillExists(ctx, skillName)) {
-			content = getSkill(ctx, skillName);
-			if (!content.endsWith("\n")) content += "\n";
-			content += newEntry;
-			console.log(pc.blue(`ℹ Đang cập nhật bài học mới vào sổ tay "${skillName}"...`));
-		} else {
-			console.log(pc.blue(`ℹ Đang tạo sổ tay học tập mới "${skillName}"...`));
-			content = `---
-name: ${skillName}
-description: Tự động ghi lại các bài học và kinh nghiệm rút ra liên quan đến chủ đề ${cleanTopic}.
-tags: [learned, ${cleanTopic}]
----
-
-# Sổ tay học tập: ${cleanTopic.toUpperCase()}
-
-Kỹ năng này là một tập hợp các bài học, quy tắc và kinh nghiệm tự động được tích lũy bởi AI Agent sau các lần gỡ lỗi hoặc cấu hình thực tế. Hãy luôn đọc kỹ sổ tay này trước khi làm việc với ${cleanTopic} để tránh lặp lại sai lầm.
-
-## Những bài học đã ghi nhận
-
-${newEntry}`;
+		if (err instanceof BundleError) {
+			fatal(err.message);
+			return;
 		}
-		fs.writeFileSync(filePath, content, "utf8");
-		success(`Đã lưu bài học vào kỹ năng "${skillName}".`);
-		if (!options.noSync) {
-			console.log(pc.blue("ℹ Đang đồng bộ sổ tay lên kho lưu trữ đám mây..."));
-			syncPush(ctx, `docs(learn): auto-learned new lesson for ${cleanTopic}`);
-		}
-	} catch (err) {
 		handleError(err);
 	}
 }
@@ -969,16 +1922,51 @@ function runInitSync(ctx, url) {
 	} else warn(result.message);
 }
 //#endregion
+//#region src/commands/learn.ts
+async function runLearn(ctx, topic, lesson, options = {}) {
+	try {
+		const cleanTopic = validateSkillName(topic.toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, ""));
+		const skillName = `learned-${cleanTopic}`;
+		const service = new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir));
+		const newEntry = `- **[${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}]**: ${lesson}`;
+		const initialContent = `---
+name: ${skillName}
+description: Tự động ghi lại các bài học và kinh nghiệm rút ra liên quan đến chủ đề ${cleanTopic}.
+tags: [learned, ${cleanTopic}]
+---
+
+# Sổ tay học tập: ${cleanTopic.toUpperCase()}
+
+Kỹ năng này là một tập hợp các bài học, quy tắc và kinh nghiệm tự động được tích lũy bởi AI Agent sau các lần gỡ lỗi hoặc cấu hình thực tế. Hãy luôn đọc kỹ sổ tay này trước khi làm việc với ${cleanTopic} để tránh lặp lại sai lầm.
+
+## Những bài học đã ghi nhận
+
+${newEntry}
+`;
+		const { isNew } = await service.appendLesson(skillName, lesson, initialContent);
+		if (isNew) console.log(pc.blue(`ℹ Đang tạo sổ tay học tập mới "${skillName}"...`));
+		else console.log(pc.blue(`ℹ Đang cập nhật bài học mới vào sổ tay "${skillName}"...`));
+		success(`Đã lưu bài học vào kỹ năng "${skillName}".`);
+		if (!options.noSync) {
+			console.log(pc.blue("ℹ Đang đồng bộ sổ tay lên kho lưu trữ đám mây..."));
+			syncPush(ctx, `docs(learn): auto-learned new lesson for ${cleanTopic}`);
+		}
+	} catch (err) {
+		handleError(err);
+	}
+}
+//#endregion
 //#region src/commands/list.ts
-function runList(ctx) {
+async function runList(ctx) {
 	syncPull(ctx);
-	const skills = listSkills(ctx);
+	const skills = await new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir)).getAllSkills();
 	if (skills.length === 0) {
 		console.log(c.dim("Kho kỹ năng đang trống. Thêm kỹ năng bằng: ai-skills add <tên> <đường_dẫn_file>"));
 		return;
 	}
 	console.log(c.bold(`Danh sách kỹ năng (${skills.length}):`));
-	for (const skill of skills) console.log(`  ${c.ok("•")} ${skill.name}`);
+	const sorted = skills.sort((a, b) => a.name.localeCompare(b.name));
+	for (const skill of sorted) console.log(`  ${c.ok("•")} ${skill.name}`);
 }
 //#endregion
 //#region src/policies/recommender.ts
@@ -1032,8 +2020,8 @@ function matchContextual(profile, lowerName, lowerContent) {
 function computeRelevance(skillName, content, profile) {
 	const lowerContent = content.toLowerCase();
 	const lowerName = skillName.toLowerCase();
-	const frontmatter = parseFrontmatter(content);
-	const keywords = matchKeywords(profile, lowerName, lowerContent, frontmatter.description?.toLowerCase() ?? "", (frontmatter.tags ?? []).map((t) => t.toLowerCase()));
+	const { meta } = parseSkillFile(content);
+	const keywords = matchKeywords(profile, lowerName, lowerContent, meta.description?.toLowerCase() ?? "", (meta.tags ?? []).map((t) => t.toLowerCase()));
 	const contextual = matchContextual(profile, lowerName, lowerContent);
 	return {
 		score: keywords.score + contextual.score,
@@ -1051,15 +2039,21 @@ function scoreToConfidence(score) {
 * Đọc nội dung từng skill, so sánh với profile, trả về top matches.
 * @param maxResults Số kết quả tối đa trả về (mặc định 5)
 */
-function recommendSkills(ctx, profile, availableSkills, maxResults = 5) {
+async function recommendSkills(ctx, profile, availableSkills, maxResults = 5) {
 	const recommendations = [];
-	for (const skill of availableSkills) {
-		let content;
+	const promises = availableSkills.map(async (skill) => {
 		try {
-			content = getSkill(ctx, skill.name);
+			const p = path.join(ctx.skillsDir, `${skill.name}.md`);
+			return {
+				skill,
+				content: await fs.readFile(p, "utf-8")
+			};
 		} catch {
-			continue;
+			return null;
 		}
+	});
+	const loadedSkills = (await Promise.all(promises)).filter((s) => s !== null);
+	for (const { skill, content } of loadedSkills) {
 		const { score, reasons } = computeRelevance(skill.name, content, profile);
 		if (score <= 0 || reasons.length === 0) continue;
 		recommendations.push({
@@ -1074,10 +2068,9 @@ function recommendSkills(ctx, profile, availableSkills, maxResults = 5) {
 }
 //#endregion
 //#region src/commands/recommend.ts
-function runRecommend(ctx, opts) {
+async function runRecommend(ctx, opts) {
 	syncPull(ctx);
-	const projectDir = opts.dir ?? process.cwd();
-	const profile = analyzeProject(projectDir);
+	const profile = analyzeProject(opts.dir ?? process.cwd());
 	console.log(c.bold("📁 Phân tích dự án:\n"));
 	console.log(`  Tên:        ${c.accent(profile.name)}`);
 	console.log(`  Ngôn ngữ:   ${profile.language}`);
@@ -1087,12 +2080,15 @@ function runRecommend(ctx, opts) {
 	console.log(`  CI/CD:      ${profile.hasCi ? c.ok("✓") : c.dim("✗")}`);
 	console.log(`  Docker:     ${profile.hasDocker ? c.ok("✓") : c.dim("✗")}`);
 	console.log();
-	const skills = listSkills(ctx);
+	const skills = await new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir)).getAllSkills();
 	if (skills.length === 0) {
 		info("Kho kỹ năng đang trống. Thêm kỹ năng bằng: ai-skills add <tên> <file>");
 		return;
 	}
-	const recommendations = recommendSkills(ctx, profile, skills);
+	const recommendations = await recommendSkills(ctx, profile, skills.map((s) => ({
+		name: s.id,
+		path: `${ctx.skillsDir}/${s.id}.md`
+	})));
 	if (recommendations.length === 0) {
 		info("Không tìm thấy kỹ năng phù hợp với dự án này.");
 		info(`Kho hiện có ${skills.length} kỹ năng. Thử thêm skills liên quan đến ${profile.frameworks.join(", ") || profile.language}.`);
@@ -1109,15 +2105,15 @@ function runRecommend(ctx, opts) {
 		console.log(`    ${c.dim(rec.reason)}`);
 	}
 	console.log();
-	info(`Apply bằng: ai-skills apply <tên>`);
+	info("Apply bằng: ai-skills apply <tên>");
 }
 //#endregion
 //#region src/commands/remove.ts
-function runRemove(ctx, rawName) {
+async function runRemove(ctx, rawName) {
 	try {
 		const name = validateSkillName(rawName);
 		syncPull(ctx);
-		removeSkill(ctx, name);
+		await new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir)).deleteSkill(name);
 		success(`Đã xóa kỹ năng "${name}".`);
 		syncPush(ctx, `Auto-sync: Remove skill ${name}`);
 	} catch (err) {
@@ -1140,9 +2136,9 @@ async function runRun(ctx, rawName, options = {}) {
 	try {
 		const name = validateSkillName(rawName);
 		let skillFilePath = path.join(process.cwd(), ".agents", "skills", name, "SKILL.md");
-		if (!fs.existsSync(skillFilePath)) skillFilePath = skillPath(ctx, name);
-		if (!fs.existsSync(skillFilePath)) handleError(/* @__PURE__ */ new Error(`Không tìm thấy kỹ năng "${name}".`));
-		const scriptContent = extractBashHook(fs.readFileSync(skillFilePath, "utf8"));
+		if (!fs$1.existsSync(skillFilePath)) skillFilePath = skillPath(ctx, name);
+		if (!fs$1.existsSync(skillFilePath)) handleError(/* @__PURE__ */ new Error(`Không tìm thấy kỹ năng "${name}".`));
+		const scriptContent = extractBashHook(fs$1.readFileSync(skillFilePath, "utf8"));
 		if (!scriptContent) {
 			info(`Kỹ năng "${name}" không chứa khối mã \`\`\`bash để thực thi.`);
 			return;
@@ -1166,7 +2162,8 @@ async function runRun(ctx, rawName, options = {}) {
 		try {
 			execSync(scriptContent, execOptions);
 		} catch (e) {
-			if (os.platform() === "win32" && e.message && e.message.includes("ENOENT")) handleError(/* @__PURE__ */ new Error("Không tìm thấy 'bash' trên Windows. Hãy chắc chắn bạn đã cài Git Bash hoặc WSL và đưa vào PATH."));
+			const errMsg = e instanceof Error ? e.message : String(e);
+			if (os.platform() === "win32" && errMsg.includes("ENOENT")) handleError(/* @__PURE__ */ new Error("Không tìm thấy 'bash' trên Windows. Hãy chắc chắn bạn đã cài Git Bash hoặc WSL và đưa vào PATH."));
 			else throw e;
 		}
 	} catch (err) {
@@ -1175,7 +2172,7 @@ async function runRun(ctx, rawName, options = {}) {
 }
 //#endregion
 //#region src/commands/search.ts
-/** Hiển thị kết quả TF-IDF/fuzzy search */
+/** Hiển thị kết quả TF-IDF/fuzzy search (legacy policy path) */
 function displaySemanticResults(results, keyword) {
 	console.log(`Kết quả tìm kiếm thông minh cho ${c.accent(`"${keyword}"`)}: \n`);
 	if (results.length === 0) {
@@ -1190,7 +2187,7 @@ function displaySemanticResults(results, keyword) {
 		if (r.snippet) console.log(`    ${c.dim(r.snippet)}`);
 	}
 }
-/** Hiển thị kết quả brute-force search */
+/** Hiển thị kết quả brute-force search (từ Application Service) */
 function displayBruteForceResults(results, keyword) {
 	console.log(`Kết quả tìm kiếm cho ${c.accent(`"${keyword}"`)}: \n`);
 	if (results.length === 0) {
@@ -1201,36 +2198,35 @@ function displayBruteForceResults(results, keyword) {
 		const tags = [];
 		if (r.matchedInName) tags.push("tên");
 		if (r.matchedInContent) tags.push("nội dung");
-		console.log(`  ${c.ok("•")} ${r.name} ${c.dim(`(khớp trong: ${tags.join(", ")})`)}`);
+		console.log(`  ${c.ok("•")} ${r.id} ${c.dim(`(khớp trong: ${tags.join(", ")})`)}`);
 	}
 }
-function runSearch(ctx, keyword, opts = {}) {
+async function runSearch(ctx, keyword, opts = {}) {
 	syncPull(ctx);
 	if (opts.semantic) displaySemanticResults(searchSkillsSemantic(ctx, keyword, opts.tag), keyword);
-	else displayBruteForceResults(searchSkills(ctx, keyword, opts.tag), keyword);
+	else displayBruteForceResults(await new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir)).searchSkills(keyword, opts.tag), keyword);
 }
 //#endregion
 //#region src/commands/stats.ts
-function runStats(ctx) {
+async function runStats(ctx) {
 	try {
-		const skills = listSkills(ctx);
+		const skills = await new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir)).getAllSkills();
 		if (skills.length === 0) {
 			console.log(c.dim("Kho kỹ năng trống. Hãy dùng lệnh `create` hoặc `add` để thêm."));
 			return;
 		}
 		const tagCounts = /* @__PURE__ */ new Map();
 		for (const skill of skills) {
-			const content = getSkill(ctx, skill.name);
-			const tags = (parseFrontmatter(content).tags ?? []).map((t) => t.toLowerCase());
+			const tags = skill.getTags().map((t) => t.value.toLowerCase());
 			for (const tag of tags) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
 		}
-		success(`Thống kê kho kỹ năng:`);
-		console.log(`  ${c.ok("•")} Tổng số kỹ năng: ${c.bold(skills.length)}`);
+		success("Thống kê kho kỹ năng:");
+		console.log(`  ${c.ok("•")} Tổng số kỹ năng: ${c.bold(String(skills.length))}`);
 		if (tagCounts.size > 0) {
 			console.log(`  ${c.ok("•")} Phân bố tags:`);
 			const sortedTags = Array.from(tagCounts.entries()).sort((a, b) => b[1] - a[1]);
 			for (const [tag, count] of sortedTags) console.log(`      - ${c.accent(tag)}: ${count}`);
-		} else console.log(c.dim(`  (Không có tags nào được sử dụng)`));
+		} else console.log(c.dim("  (Không có tags nào được sử dụng)"));
 	} catch (err) {
 		handleError(err);
 	}
@@ -1241,112 +2237,67 @@ function runStats(ctx) {
 * Subcommand `tag` — quản lý tags của skills.
 * Dùng như: ai-skills tag <action> [args...]
 */
-function runTagAdd(ctx, skillName, tags) {
+async function runTagAdd(ctx, skillName, tags) {
 	if (tags.length === 0) {
 		fatal("Cần ít nhất 1 tag. Ví dụ: ai-skills tag add my-skill frontend web");
 		return;
 	}
-	if (!skillExists(ctx, skillName)) {
-		fatal(`Không tìm thấy skill "${skillName}".`);
-		return;
-	}
-	const p = skillPath(ctx, skillName);
-	const content = fs.readFileSync(p, "utf8");
-	const current = getTags(content);
-	const lower = new Set(current.map((t) => t.toLowerCase()));
-	const toAdd = tags.filter((t) => !lower.has(t.toLowerCase()));
-	if (toAdd.length === 0) {
-		console.log(`${c.warn("⚠")}  Tất cả tags đã tồn tại trong "${skillName}": ${current.map((t) => c.accent(t)).join(", ")}`);
-		return;
-	}
-	const next = [...current, ...toAdd];
-	const updated = injectTags(content, next);
-	fs.writeFileSync(p, updated, "utf8");
-	console.log(`${c.ok("✓")}  Tags của "${skillName}":`);
-	console.log(`   ${next.map((t) => c.accent(t)).join("  ")}`);
-	if (toAdd.length < tags.length) {
-		const skipped = tags.filter((t) => lower.has(t.toLowerCase()));
-		console.log(`${c.dim(`   (bỏ qua đã có: ${skipped.join(", ")})`)}`);
+	const service = new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir));
+	try {
+		const skill = await service.addTagsToSkill(skillName, tags);
+		console.log(`${c.ok("✓")}  Tags của "${skillName}":`);
+		console.log(`   ${skill.getTags().map((t) => c.accent(t.value)).join("  ")}`);
+	} catch (error) {
+		const errMsg = error instanceof Error ? error.message : String(error);
+		if (errMsg.includes("not found")) fatal(`Không tìm thấy skill "${skillName}".`);
+		else fatal(errMsg);
 	}
 }
-function runTagRemove(ctx, skillName, tag) {
-	if (!skillExists(ctx, skillName)) {
-		fatal(`Không tìm thấy skill "${skillName}".`);
-		return;
+async function runTagRemove(ctx, skillName, tag) {
+	const service = new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir));
+	try {
+		const skill = await service.removeTagFromSkill(skillName, tag);
+		console.log(`${c.ok("✓")}  Đã xóa tag "${tag}" khỏi "${skillName}".`);
+		const remaining = skill.getTags();
+		if (remaining.length > 0) console.log(`   Tags còn lại: ${remaining.map((t) => c.accent(t.value)).join("  ")}`);
+		else console.log(`   ${c.dim("(không còn tag nào)")}`);
+	} catch (error) {
+		const errMsg = error instanceof Error ? error.message : String(error);
+		if (errMsg.includes("not found")) fatal(`Không tìm thấy skill "${skillName}".`);
+		else fatal(errMsg);
 	}
-	const p = skillPath(ctx, skillName);
-	const content = fs.readFileSync(p, "utf8");
-	const { content: updated, removed } = removeTag(content, tag);
-	if (!removed) {
-		console.log(`${c.warn("⚠")}  Tag "${tag}" không tồn tại trong skill "${skillName}".`);
-		const current = getTags(content);
-		if (current.length > 0) console.log(`   Tags hiện tại: ${current.map((t) => c.accent(t)).join("  ")}`);
-		return;
-	}
-	fs.writeFileSync(p, updated, "utf8");
-	const remaining = getTags(updated);
-	console.log(`${c.ok("✓")}  Đã xóa tag "${tag}" khỏi "${skillName}".`);
-	if (remaining.length > 0) console.log(`   Tags còn lại: ${remaining.map((t) => c.accent(t)).join("  ")}`);
-	else console.log(`   ${c.dim("(không còn tag nào)")}`);
 }
-function runTagList(ctx) {
-	const skills = listSkills(ctx);
-	if (skills.length === 0) {
-		console.log(c.dim("Kho kỹ năng trống."));
-		return;
-	}
-	const tagMap = /* @__PURE__ */ new Map();
-	let untaggedCount = 0;
-	for (const skill of skills) {
-		const content = getSkill(ctx, skill.name);
-		const tags = getTags(content);
-		if (tags.length === 0) {
-			untaggedCount++;
-			continue;
-		}
-		for (const tag of tags) {
-			const existing = tagMap.get(tag) ?? [];
-			existing.push(skill.name);
-			tagMap.set(tag, existing);
-		}
-	}
-	if (tagMap.size === 0 && untaggedCount === 0) {
+async function runTagList(ctx) {
+	const { tagMap, untagged } = await new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir)).getTagsOverview();
+	Array.from(tagMap.values()).flat().length + untagged.length;
+	if (tagMap.size === 0 && untagged.length === 0) {
 		console.log(c.dim("Không có skill nào."));
 		return;
 	}
 	console.log(`\n${c.bold("Tags trong kho kỹ năng:")}\n`);
 	const sortedTags = [...tagMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
 	for (const [tag, names] of sortedTags) {
-		const count = c.dim(`(${names.length} skill)`);
+		const uniqueNames = Array.from(new Set(names)).sort();
+		const count = c.dim(`(${uniqueNames.length} skill)`);
 		console.log(`  ${c.accent(tag.padEnd(24))} ${count}`);
-		for (const n of names.sort()) console.log(`    ${c.dim("•")} ${n}`);
+		for (const n of uniqueNames) console.log(`    ${c.dim("•")} ${n}`);
 	}
-	if (untaggedCount > 0) console.log(`\n  ${c.dim(`(untagged: ${untaggedCount} skills)`)}`);
-	console.log(`\n${c.dim(`Tổng: ${tagMap.size} tags, ${skills.length} skills`)}`);
+	if (untagged.length > 0) console.log(`\n  ${c.dim(`(untagged: ${untagged.length} skills)`)}`);
+	console.log(`\n${c.dim(`Tổng: ${tagMap.size} tags`)}`);
 }
-function runTagRename(ctx, oldTag, newTag) {
+async function runTagRename(ctx, oldTag, newTag) {
 	if (!newTag || newTag.trim() === "") {
 		fatal("Tên tag mới không được để trống.");
 		return;
 	}
-	const skills = listSkills(ctx);
-	let renamedCount = 0;
-	for (const skill of skills) {
-		const content = getSkill(ctx, skill.name);
-		const { content: updated, renamed } = renameTag(content, oldTag, newTag);
-		if (renamed) {
-			fs.writeFileSync(skill.path, updated, "utf8");
-			renamedCount++;
-			console.log(`  ${c.ok("✓")}  ${skill.name}`);
-		}
-	}
+	const renamedCount = await new SkillApplicationService(new FileSystemSkillRepository(ctx.skillsDir)).renameTag(oldTag, newTag);
 	if (renamedCount === 0) {
 		console.log(`${c.warn("⚠")}  Tag "${oldTag}" không tìm thấy trong bất kỳ skill nào.`);
 		return;
 	}
 	console.log(`\n${c.ok("✓")} Đã đổi "${oldTag}" → "${newTag}" trong ${renamedCount} skill.`);
 }
-function runTag(ctx, action, args) {
+async function runTag(ctx, action, args) {
 	switch (action) {
 		case "add": {
 			const [skill, ...tags] = args;
@@ -1354,7 +2305,7 @@ function runTag(ctx, action, args) {
 				fatal("Usage: ai-skills tag add <skill> <tag1> [tag2...]");
 				return;
 			}
-			runTagAdd(ctx, skill, tags);
+			await runTagAdd(ctx, skill, tags);
 			break;
 		}
 		case "remove":
@@ -1364,12 +2315,12 @@ function runTag(ctx, action, args) {
 				fatal("Usage: ai-skills tag remove <skill> <tag>");
 				return;
 			}
-			runTagRemove(ctx, skill, tag);
+			await runTagRemove(ctx, skill, tag);
 			break;
 		}
 		case "list":
 		case "ls":
-			runTagList(ctx);
+			await runTagList(ctx);
 			break;
 		case "rename":
 		case "mv": {
@@ -1378,7 +2329,7 @@ function runTag(ctx, action, args) {
 				fatal("Usage: ai-skills tag rename <old-tag> <new-tag>");
 				return;
 			}
-			runTagRename(ctx, oldTag, newTag);
+			await runTagRename(ctx, oldTag, newTag);
 			break;
 		}
 		default: fatal(`Action không hợp lệ: "${action}". Dùng: add | remove | list | rename`);
@@ -1396,28 +2347,44 @@ function runUpdate(ctx) {
 	}
 }
 //#endregion
+//#region src/context.ts
+/** Thư mục lưu toàn bộ skill files (~/.ai-skills) */
+const SKILLS_DIR = path.join(os.homedir(), ".ai-skills");
+function createCliContext(overrides = {}) {
+	return {
+		skillsDir: SKILLS_DIR,
+		verbose: false,
+		projectDir: process.cwd(),
+		...overrides
+	};
+}
+//#endregion
+//#region src/version.ts
+/** Single source of truth cho CLI version — đồng bộ với package.json */
+const CLI_VERSION = "1.3.0";
+//#endregion
 //#region src/index.ts
 const ctx = createCliContext();
 program.name("ai-skills").description("CLI Tool — Thư viện lưu trữ Kỹ năng cho AI (Local AI Skill Registry)").version(CLI_VERSION);
 program.command("init-sync <url>").description("Khởi tạo đồng bộ Git cho kho kỹ năng (liên kết với Cloud repo)").action((url) => runInitSync(ctx, url));
-program.command("list").description("Liệt kê danh sách tất cả các kỹ năng đang có").action(() => runList(ctx));
-program.command("get <name>").description("Đọc và in ra nội dung của một kỹ năng cụ thể").option("--no-sync", "Bỏ qua việc đồng bộ git tự động").option("-r, --recursive", "Tự động tải nội dung của các skill phụ thuộc (thông qua requires)").action((name, opts) => runGet(ctx, name, {
+program.command("list").description("Liệt kê danh sách tất cả các kỹ năng đang có").action(async () => await runList(ctx));
+program.command("get <name>").description("Đọc và in ra nội dung của một kỹ năng cụ thể").option("--no-sync", "Bỏ qua việc đồng bộ git tự động").option("-r, --recursive", "Tự động tải nội dung của các skill phụ thuộc (thông qua requires)").action(async (name, opts) => await runGet(ctx, name, {
 	noSync: !opts.sync,
 	recursive: opts.recursive
 }));
-program.command("add <name> <file_path>").description("Thêm một kỹ năng mới từ file Markdown có sẵn").option("--no-sync", "Bỏ qua việc đồng bộ git tự động").action((name, filePath, opts) => runAdd(ctx, name, filePath, { noSync: !opts.sync }));
-program.command("learn <topic> <lesson>").description("Tự động trích xuất bài học và ghi vào sổ tay kỹ năng (learned-<topic>)").option("--no-sync", "Bỏ qua việc đồng bộ git tự động").action((topic, lesson, opts) => runLearn(ctx, topic, lesson, opts));
+program.command("add <name> <file_path>").description("Thêm một kỹ năng mới từ file Markdown có sẵn").option("--no-sync", "Bỏ qua việc đồng bộ git tự động").action(async (name, filePath, opts) => await runAdd(ctx, name, filePath, { noSync: !opts.sync }));
+program.command("learn <topic> <lesson>").description("Tự động trích xuất bài học và ghi vào sổ tay kỹ năng (learned-<topic>)").option("--no-sync", "Bỏ qua việc đồng bộ git tự động").action(async (topic, lesson, opts) => await runLearn(ctx, topic, lesson, opts));
 program.command("graph").description("Khởi động Web Viewer để xem đồ thị liên kết kỹ năng (Knowledge Graph)").action(() => runGraph(ctx));
-program.command("remove <name>").alias("rm").description("Xóa một kỹ năng khỏi kho lưu trữ").action((name) => runRemove(ctx, name));
-program.command("search <keyword>").description("Tìm kiếm kỹ năng theo tên hoặc nội dung").option("-s, --semantic", "Tìm kiếm thông minh với TF-IDF + fuzzy matching").option("--tag <tag>", "Lọc kết quả theo tag").action((keyword, opts) => runSearch(ctx, keyword, opts));
-program.command("apply <name>").description("Bơm kỹ năng từ kho tổng vào dự án hiện tại (tạo Symlink)").action((name) => runApply(ctx, name));
+program.command("remove <name>").alias("rm").description("Xóa một kỹ năng khỏi kho lưu trữ").action(async (name) => await runRemove(ctx, name));
+program.command("search <keyword>").description("Tìm kiếm kỹ năng theo tên hoặc nội dung").option("-s, --semantic", "Tìm kiếm thông minh với TF-IDF + fuzzy matching").option("--tag <tag>", "Lọc kết quả theo tag").action(async (keyword, opts) => await runSearch(ctx, keyword, opts));
+program.command("apply <name>").description("Bơm kỹ năng từ kho tổng vào dự án hiện tại (tạo Symlink)").action(async (name) => await runApply(ctx, name));
 program.command("run <name>").description("Thực thi các khối mã (script/hook) bên trong file Markdown của kỹ năng").option("-y, --yes", "Bỏ qua xác nhận (dùng cho automation)").action((name, opts) => runRun(ctx, name, opts));
-program.command("create [name]").description("Tạo kỹ năng mới từ template có sẵn").option("-t, --template <id>", "Chọn template (mặc định: basic)").option("-d, --description <text>", "Mô tả ngắn cho kỹ năng").option("--tags <tags...>", "Danh sách tags (cách nhau bởi dấu cách)").option("--force", "Ghi đè nếu skill đã tồn tại").option("--list-templates", "Liệt kê các template có sẵn").action((name, opts) => runCreate(ctx, name, opts));
-program.command("recommend").description("Phân tích dự án và gợi ý kỹ năng phù hợp").option("--dir <path>", "Thư mục dự án cần phân tích (mặc định: thư mục hiện tại)").action((opts) => runRecommend(ctx, opts));
+program.command("create [name]").description("Tạo kỹ năng mới từ template có sẵn").option("-t, --template <id>", "Chọn template (mặc định: basic)").option("-d, --description <text>", "Mô tả ngắn cho kỹ năng").option("--tags <tags...>", "Danh sách tags (cách nhau bởi dấu cách)").option("--force", "Ghi đè nếu skill đã tồn tại").option("--list-templates", "Liệt kê các template có sẵn").action(async (name, opts) => await runCreate(ctx, name, opts));
+program.command("recommend").description("Phân tích dự án và gợi ý kỹ năng phù hợp").option("--dir <path>", "Thư mục dự án cần phân tích (mặc định: thư mục hiện tại)").action(async (opts) => await runRecommend(ctx, opts));
 program.command("update").description("Cập nhật kho kỹ năng từ Cloud (Git Pull)").action(() => runUpdate(ctx));
-program.command("stats").description("Xem thống kê kho kỹ năng và tags").action(() => runStats(ctx));
+program.command("stats").description("Xem thống kê kho kỹ năng và tags").action(async () => await runStats(ctx));
 program.command("audit").alias("analytics").description("Phân tích dữ liệu sử dụng kỹ năng và đề xuất dọn dẹp").action(() => runAudit(ctx));
-program.command("diff <name> <file>").description("So sánh kỹ năng trong kho với file bên ngoài").action((name, file) => runDiff(ctx, name, file));
+program.command("diff <name> <file>").description("So sánh kỹ năng trong kho với file bên ngoài").action(async (name, file) => await runDiff(ctx, name, file));
 program.command("fetch [name]").description("Tải skill từ autoskills registry về kho local").option("--from <bundle>", "Tải toàn bộ skills từ một bundle (vd: wshobson/agents)").option("--auto", "Tự động detect tech stack và fetch skills phù hợp").option("--force", "Ghi đè skill đã tồn tại").option("--diff", "So sánh khác biệt thay vì ghi đè").option("--list", "Chỉ hiển thị danh sách skills có sẵn, không tải").action((name, opts) => runFetch(ctx, name, opts));
 program.command("tag <action> [args...]").description("Quản lý tags của skills (add | remove | list | rename)").addHelpText("after", [
 	"",
@@ -1432,9 +2399,9 @@ program.command("tag <action> [args...]").description("Quản lý tags của ski
 	"    ai-skills tag remove my-skill web",
 	"    ai-skills tag list",
 	"    ai-skills tag rename frontend ui"
-].join("\n")).action((action, args) => runTag(ctx, action, args));
-program.command("export <file> [skills...]").description("Đóng gói skills thành một file JSON").option("--tag <tag>", "Export các skills có chứa tag này").option("--all", "Export toàn bộ kho kỹ năng").option("--with-deps", "Bao gồm cả các skill phụ thuộc (thông qua requires)").action((file, skills, opts) => runExport(ctx, file, skills, opts));
-program.command("import <file>").description("Nhập các skills từ file bundle JSON").option("--force", "Ghi đè nếu skill đã tồn tại").option("--diff", "So sánh khác biệt thay vì ghi đè").action((file, opts) => runImport(ctx, file, opts));
+].join("\n")).action(async (action, args) => await runTag(ctx, action, args));
+program.command("export <file> [skills...]").description("Đóng gói skills thành một file JSON").option("--tag <tag>", "Export các skills có chứa tag này").option("--all", "Export toàn bộ kho kỹ năng").option("--with-deps", "Bao gồm cả các skill phụ thuộc (thông qua requires)").action(async (file, skills, opts) => await runExport(ctx, file, skills, opts));
+program.command("import <file>").description("Nhập các skills từ file bundle JSON").option("--force", "Ghi đè nếu skill đã tồn tại").option("--diff", "So sánh khác biệt thay vì ghi đè").action(async (file, opts) => await runImport(ctx, file, opts));
 program.parseAsync().catch((err) => {
 	console.error(err);
 	process.exit(1);

@@ -1,8 +1,8 @@
-import fs from "node:fs";
+import { SkillApplicationService } from "../application/SkillApplicationService.js";
 import type { CliContext } from "../context.js";
+import { FileSystemSkillRepository } from "../infrastructure/FileSystemSkillRepository.js";
 import { syncPush } from "../policies/git-sync.js";
 import { validateSkillName } from "../policies/name-validation.js";
-import { ensureSkillsDir, skillExists, skillPath } from "../policies/skill-registry.js";
 import { DEFAULT_TEMPLATE_ID, getTemplate, listTemplates } from "../policies/templates.js";
 import { c, handleError, info, success, warn } from "../utils/output.js";
 
@@ -14,7 +14,11 @@ export interface CreateOptions {
   listTemplates?: boolean;
 }
 
-export function runCreate(ctx: CliContext, rawName: string | undefined, opts: CreateOptions): void {
+export async function runCreate(
+  ctx: CliContext,
+  rawName: string | undefined,
+  opts: CreateOptions,
+): Promise<void> {
   try {
     // --list-templates: chỉ liệt kê templates rồi thoát
     if (opts.listTemplates) {
@@ -31,17 +35,9 @@ export function runCreate(ctx: CliContext, rawName: string | undefined, opts: Cr
     // Validate name
     if (!rawName) {
       handleError(new Error("Vui lòng cung cấp tên skill. Ví dụ: ai-skills create my-skill"));
+      return;
     }
     const name = validateSkillName(rawName);
-
-    // Kiểm tra đã tồn tại
-    if (skillExists(ctx, name) && !opts.force) {
-      warn(`Skill "${name}" đã tồn tại. Dùng --force để ghi đè.`);
-      process.exit(1);
-    }
-    if (skillExists(ctx, name) && opts.force) {
-      warn(`Đang ghi đè skill "${name}"...`);
-    }
 
     // Lấy template
     const templateId = opts.template ?? DEFAULT_TEMPLATE_ID;
@@ -53,19 +49,29 @@ export function runCreate(ctx: CliContext, rawName: string | undefined, opts: Cr
       handleError(
         new Error(`Template "${templateId}" không tồn tại. Các template có sẵn: ${available}`),
       );
+      return;
     }
 
-    // Generate content
+    const repo = new FileSystemSkillRepository(ctx.skillsDir);
+    const service = new SkillApplicationService(repo);
+
+    if ((await repo.exists(name)) && !opts.force) {
+      warn(`Skill "${name}" đã tồn tại. Dùng --force để ghi đè.`);
+      process.exit(1);
+    }
+    if ((await repo.exists(name)) && opts.force) {
+      warn(`Đang ghi đè skill "${name}"...`);
+    }
+
+    // Generate content từ template
     const description = opts.description ?? `Kỹ năng ${name}`;
     const content = template.generate(name, description, opts.tags);
 
-    // Ghi file
-    ensureSkillsDir(ctx);
-    fs.writeFileSync(skillPath(ctx, name), content, "utf8");
+    await service.createSkillFromContent(name, content, opts.force);
 
     success(`Đã tạo kỹ năng "${name}" từ template "${template.id}"!`);
-    info(`Đường dẫn: ${skillPath(ctx, name)}`);
-    info(`Chỉnh sửa file và thêm nội dung phù hợp với dự án của bạn.`);
+    info(`Chỉnh sửa file tại: ${ctx.skillsDir}/${name}.md`);
+    info(`Thêm nội dung phù hợp với dự án của bạn.`);
 
     syncPush(ctx, `Auto-sync: Create skill ${name}`);
   } catch (err) {

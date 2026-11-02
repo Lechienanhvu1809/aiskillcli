@@ -1,4 +1,3 @@
-
 /**
  * Business Rule: Validate và sanitize tên skill.
  * Chặn path traversal, ký tự đặc biệt, tên quá dài.

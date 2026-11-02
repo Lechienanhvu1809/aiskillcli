@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import { SkillApplicationService } from "../application/SkillApplicationService.js";
 import type { CliContext } from "../context.js";
+import { FileSystemSkillRepository } from "../infrastructure/FileSystemSkillRepository.js";
 import { BundleError, exportBundle } from "../policies/bundle.js";
-import { listSkills } from "../policies/skill-registry.js";
-import { parseFrontmatter } from "../utils/frontmatter.js";
-import { c, fatal, handleError, info, success, warn } from "../utils/output.js";
+import { fatal, handleError, info, success, warn } from "../utils/output.js";
 
 export interface ExportOptions {
   tag?: string;
@@ -12,26 +12,27 @@ export interface ExportOptions {
   withDeps?: boolean;
 }
 
-export function runExport(
+export async function runExport(
   ctx: CliContext,
   outputFile: string,
   skills: string[],
   opts: ExportOptions,
-): void {
+): Promise<void> {
   try {
-    const allSkills = listSkills(ctx);
+    const repo = new FileSystemSkillRepository(ctx.skillsDir);
+    const service = new SkillApplicationService(repo);
+    const allSkills = await service.getAllSkills();
+
     let toExport: string[] = [];
 
     if (opts.all) {
-      toExport = allSkills.map((s) => s.name);
+      toExport = allSkills.map((s) => s.id);
     } else if (opts.tag) {
       const lowerTag = opts.tag.toLowerCase();
+      // Lọc theo tag trực tiếp từ domain entity
       for (const skill of allSkills) {
-        const content = fs.readFileSync(skill.path, "utf8");
-        const frontmatter = parseFrontmatter(content);
-        const tags = (frontmatter.tags ?? []).map((t) => t.toLowerCase());
-        if (tags.includes(lowerTag)) {
-          toExport.push(skill.name);
+        if (skill.getTags().some((t) => t.value === lowerTag)) {
+          toExport.push(skill.id);
         }
       }
     } else {
@@ -40,23 +41,20 @@ export function runExport(
 
     if (opts.withDeps) {
       const visited = new Set<string>();
-      
-      function addDeps(name: string) {
+
+      async function addDeps(name: string) {
         if (visited.has(name)) return;
         visited.add(name);
-        try {
-          const content = fs.readFileSync(path.join(ctx.skillsDir, `${name}.md`), "utf8");
-          const frontmatter = parseFrontmatter(content);
-          if (frontmatter.requires && Array.isArray(frontmatter.requires)) {
-            for (const req of frontmatter.requires) {
-              addDeps(req);
-            }
+        const dep = await service.getSkill(name);
+        if (dep) {
+          for (const req of dep.getRequirements()) {
+            await addDeps(req);
           }
-        } catch {}
+        }
       }
 
       for (const s of toExport) {
-        addDeps(s);
+        await addDeps(s);
       }
       toExport = Array.from(visited);
     }
@@ -76,6 +74,7 @@ export function runExport(
   } catch (err) {
     if (err instanceof BundleError) {
       fatal(err.message);
+      return;
     }
     handleError(err);
   }

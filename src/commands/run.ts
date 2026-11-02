@@ -9,7 +9,11 @@ import { validateSkillName } from "../policies/name-validation.js";
 import { skillPath } from "../policies/skill-registry.js";
 import { handleError, info, warn } from "../utils/output.js";
 
-export async function runRun(ctx: CliContext, rawName: string, options: { yes?: boolean } = {}): Promise<void> {
+export async function runRun(
+  ctx: CliContext,
+  rawName: string,
+  options: { yes?: boolean } = {},
+): Promise<void> {
   try {
     const name = validateSkillName(rawName);
 
@@ -61,14 +65,19 @@ export async function runRun(ctx: CliContext, rawName: string, options: { yes?: 
 
     try {
       execSync(scriptContent, execOptions);
-    } catch (e: any) {
-      if (os.platform() === "win32" && e.message && e.message.includes("ENOENT")) {
-        handleError(new Error("Không tìm thấy 'bash' trên Windows. Hãy chắc chắn bạn đã cài Git Bash hoặc WSL và đưa vào PATH."));
+    } catch (e: unknown) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      if (os.platform() === "win32" && errMsg.includes("ENOENT")) {
+        handleError(
+          new Error(
+            "Không tìm thấy 'bash' trên Windows. Hãy chắc chắn bạn đã cài Git Bash hoặc WSL và đưa vào PATH.",
+          ),
+        );
       } else {
         throw e;
       }
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     handleError(err);
   }
 }

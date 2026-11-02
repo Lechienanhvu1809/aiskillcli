@@ -2,6 +2,8 @@
  * Utility: Parse YAML frontmatter đơn giản (không cần dependency).
  */
 
+import type { Skill } from "../domain/entities/Skill.js";
+
 export interface SkillFrontmatter {
   name?: string;
   description?: string;
@@ -102,4 +104,76 @@ export function renameTag(
   });
   if (!renamed) return { content, renamed: false };
   return { content: injectTags(content, next), renamed: true };
+}
+
+/**
+ * Serialize object thành YAML frontmatter và gắn với body content.
+ */
+export function serializeFrontmatter(frontmatter: SkillFrontmatter, body: string): string {
+  const lines: string[] = ["---"];
+
+  if (frontmatter.name) {
+    lines.push(`name: ${frontmatter.name}`);
+  }
+  if (frontmatter.description) {
+    lines.push(`description: ${frontmatter.description}`);
+  }
+  if (frontmatter.tags && frontmatter.tags.length > 0) {
+    lines.push(`tags: [${frontmatter.tags.join(", ")}]`);
+  }
+  if (frontmatter.requires && frontmatter.requires.length > 0) {
+    lines.push(`requires: [${frontmatter.requires.join(", ")}]`);
+  }
+
+  lines.push("---");
+  return `${lines.join("\n")}\n\n${body.trim()}`;
+}
+
+export function formatSkillAsMarkdown(skill: Skill): string {
+  const newFrontmatter: SkillFrontmatter = {
+    name: skill.name,
+    description: skill.description.split("\n")[0] || "",
+    tags: skill.getTags().map((t) => t.value),
+    requires: skill.getRequirements(),
+  };
+
+  return serializeFrontmatter(newFrontmatter, skill.content || "No content yet.");
+}
+/**
+ * Bóc tách cả frontmatter và phần body của file markdown một cách chuẩn xác,
+ * hỗ trợ linh hoạt các ngắt dòng.
+ */
+export function parseSkillFile(content: string): { meta: SkillFrontmatter; body: string } {
+  // Regex để match khối frontmatter ở đầu file
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+  if (!match) {
+    return { meta: parseFrontmatter(content), body: content.trim() };
+  }
+
+  const frontmatterStr = match[1];
+  const body = content.slice(match[0].length).trim();
+
+  // Parse frontmatter
+  const result: SkillFrontmatter = {};
+  for (const line of frontmatterStr.split(/\r?\n/)) {
+    const colonIdx = line.indexOf(":");
+    if (colonIdx > 0) {
+      const key = line.slice(0, colonIdx).trim();
+      const valueStr = line.slice(colonIdx + 1).trim();
+
+      if (key === "tags" || key === "requires") {
+        let cleaned = valueStr;
+        if (cleaned.startsWith("[") && cleaned.endsWith("]")) {
+          cleaned = cleaned.slice(1, -1);
+        }
+        result[key] = cleaned
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean);
+      } else {
+        result[key] = valueStr;
+      }
+    }
+  }
+  return { meta: result, body };
 }

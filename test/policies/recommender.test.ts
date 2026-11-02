@@ -36,7 +36,7 @@ describe("recommender policy", () => {
     hasDocker: false,
   };
 
-  it("recommends skills matching frameworks", () => {
+  it("recommends skills matching frameworks", async () => {
     const skills = [
       createSkillFile(
         "react-patterns",
@@ -48,12 +48,12 @@ describe("recommender policy", () => {
       ),
     ];
 
-    const recs = recommendSkills(ctx, baseProfile, skills);
+    const recs = await recommendSkills(ctx, baseProfile, skills);
     expect(recs.length).toBeGreaterThan(0);
     expect(recs[0].skillName).toBe("react-patterns");
   });
 
-  it("recommends skills matching tools", () => {
+  it("recommends skills matching tools", async () => {
     const skills = [
       createSkillFile(
         "vitest-setup",
@@ -61,12 +61,12 @@ describe("recommender policy", () => {
       ),
     ];
 
-    const recs = recommendSkills(ctx, baseProfile, skills);
+    const recs = await recommendSkills(ctx, baseProfile, skills);
     expect(recs.length).toBeGreaterThan(0);
     expect(recs[0].skillName).toBe("vitest-setup");
   });
 
-  it("recommends skills matching language", () => {
+  it("recommends skills matching language", async () => {
     const skills = [
       createSkillFile(
         "ts-best-practices",
@@ -74,12 +74,12 @@ describe("recommender policy", () => {
       ),
     ];
 
-    const recs = recommendSkills(ctx, baseProfile, skills);
+    const recs = await recommendSkills(ctx, baseProfile, skills);
     expect(recs.length).toBeGreaterThan(0);
     expect(recs[0].reason).toContain("typescript");
   });
 
-  it("returns empty array when no skills match", () => {
+  it("returns empty array when no skills match", async () => {
     const profile: ProjectProfile = {
       ...baseProfile,
       frameworks: [],
@@ -96,16 +96,16 @@ describe("recommender policy", () => {
       ),
     ];
 
-    const recs = recommendSkills(ctx, profile, skills);
+    const recs = await recommendSkills(ctx, profile, skills);
     expect(recs).toEqual([]);
   });
 
-  it("returns empty array when no skills available", () => {
-    const recs = recommendSkills(ctx, baseProfile, []);
+  it("returns empty array when no skills available", async () => {
+    const recs = await recommendSkills(ctx, baseProfile, []);
     expect(recs).toEqual([]);
   });
 
-  it("limits results to maxResults", () => {
+  it("limits results to maxResults", async () => {
     const skills = [];
     for (let i = 0; i < 10; i++) {
       skills.push(
@@ -116,11 +116,11 @@ describe("recommender policy", () => {
       );
     }
 
-    const recs = recommendSkills(ctx, baseProfile, skills, 3);
+    const recs = await recommendSkills(ctx, baseProfile, skills, 3);
     expect(recs.length).toBeLessThanOrEqual(3);
   });
 
-  it("assigns correct confidence levels", () => {
+  it("assigns correct confidence levels", async () => {
     const skills = [
       createSkillFile(
         "react-typescript-testing",
@@ -132,14 +132,14 @@ describe("recommender policy", () => {
       ),
     ];
 
-    const recs = recommendSkills(ctx, baseProfile, skills);
+    const recs = await recommendSkills(ctx, baseProfile, skills);
     // The first one matches react + typescript + vitest → should be high confidence
     const topRec = recs.find((r) => r.skillName === "react-typescript-testing");
     expect(topRec).toBeDefined();
     expect(topRec?.confidence).toBe("high");
   });
 
-  it("sorts results by score descending", () => {
+  it("sorts results by score descending", async () => {
     const skills = [
       createSkillFile(
         "generic-skill",
@@ -151,13 +151,13 @@ describe("recommender policy", () => {
       ),
     ];
 
-    const recs = recommendSkills(ctx, baseProfile, skills);
+    const recs = await recommendSkills(ctx, baseProfile, skills);
     if (recs.length >= 2) {
       expect(recs[0].score).toBeGreaterThanOrEqual(recs[1].score);
     }
   });
 
-  it("gracefully skips unreadable skill files", () => {
+  it("gracefully skips unreadable skill files", async () => {
     const skills: SkillInfo[] = [
       { name: "missing-file", path: path.join(tmpDir, "does-not-exist.md") },
       createSkillFile(
@@ -167,7 +167,7 @@ describe("recommender policy", () => {
     ];
 
     // Should not throw, just skip the missing file
-    const recs = recommendSkills(ctx, baseProfile, skills);
+    const recs = await recommendSkills(ctx, baseProfile, skills);
     expect(recs.some((r) => r.skillName === "react-guide")).toBe(true);
     expect(recs.some((r) => r.skillName === "missing-file")).toBe(false);
   });

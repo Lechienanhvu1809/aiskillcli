@@ -1,7 +1,9 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { CliContext } from "../context.js";
-import { parseFrontmatter } from "../utils/frontmatter.js";
+import { parseSkillFile } from "../utils/frontmatter.js";
 import type { ProjectProfile } from "./project-analyzer.js";
-import { getSkill, type SkillInfo } from "./skill-registry.js";
+import type { SkillInfo } from "./skill-registry.js";
 
 /**
  * Business Rule: Gợi ý skills phù hợp với dự án.
@@ -94,9 +96,9 @@ function computeRelevance(
 ): { score: number; reasons: string[] } {
   const lowerContent = content.toLowerCase();
   const lowerName = skillName.toLowerCase();
-  const frontmatter = parseFrontmatter(content);
-  const description = frontmatter.description?.toLowerCase() ?? "";
-  const tags = (frontmatter.tags ?? []).map((t) => t.toLowerCase());
+  const { meta } = parseSkillFile(content);
+  const description = (meta.description as string)?.toLowerCase() ?? "";
+  const tags = ((meta.tags as string[]) ?? []).map((t) => t.toLowerCase());
 
   const keywords = matchKeywords(profile, lowerName, lowerContent, description, tags);
   const contextual = matchContextual(profile, lowerName, lowerContent);
@@ -119,22 +121,29 @@ function scoreToConfidence(score: number): Recommendation["confidence"] {
  * Đọc nội dung từng skill, so sánh với profile, trả về top matches.
  * @param maxResults Số kết quả tối đa trả về (mặc định 5)
  */
-export function recommendSkills(
+export async function recommendSkills(
   ctx: CliContext,
   profile: ProjectProfile,
   availableSkills: SkillInfo[],
   maxResults = 5,
-): Recommendation[] {
+): Promise<Recommendation[]> {
   const recommendations: Recommendation[] = [];
 
-  for (const skill of availableSkills) {
-    let content: string;
+  const promises = availableSkills.map(async (skill) => {
     try {
-      content = getSkill(ctx, skill.name);
+      const p = path.join(ctx.skillsDir, `${skill.name}.md`);
+      const content = await fs.readFile(p, "utf-8");
+      return { skill, content };
     } catch {
-      continue; // Skip unreadable files
+      return null;
     }
+  });
 
+  const loadedSkills = (await Promise.all(promises)).filter(
+    (s): s is { skill: SkillInfo; content: string } => s !== null,
+  );
+
+  for (const { skill, content } of loadedSkills) {
     const { score, reasons } = computeRelevance(skill.name, content, profile);
     if (score <= 0 || reasons.length === 0) continue;
 
