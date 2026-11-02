@@ -140,6 +140,37 @@ app.whenReady().then(() => {
     return true
   })
 
+  ipcMain.handle('get-skill-content', async (event, skillId: string) => {
+    const globalSkillsDir = path.join(os.homedir(), '.ai-skills')
+    const filePath = path.join(globalSkillsDir, `${skillId}.md`)
+    if (fs.existsSync(filePath)) {
+      const rawContent = fs.readFileSync(filePath, 'utf8')
+      const { parseSkillFile } = await import('../../src/utils/frontmatter.js')
+      const { meta, body } = parseSkillFile(rawContent)
+      return { id: skillId, meta, body, rawContent }
+    }
+    return null
+  })
+
+  ipcMain.handle('get-system-info', async () => {
+    const globalSkillsDir = path.join(os.homedir(), '.ai-skills')
+    const files = fs.existsSync(globalSkillsDir)
+      ? fs.readdirSync(globalSkillsDir).filter((f) => f.endsWith('.md'))
+      : []
+    const suggestions = [
+      'd:\\Coding',
+      'd:\\Coding\\ai-skill-cli',
+      process.cwd(),
+    ].filter((p, idx, arr) => fs.existsSync(p) && arr.indexOf(p) === idx)
+
+    return {
+      skillsDir: globalSkillsDir,
+      skillCount: files.length,
+      version: '1.3.0',
+      suggestions,
+    }
+  })
+
   ipcMain.handle('select-project', async () => {
     if (!win) return null
     const result = await dialog.showOpenDialog(win, {
