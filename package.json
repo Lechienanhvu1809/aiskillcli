@@ -55,5 +55,12 @@
     "tsx": "^4.19.0",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"
+  },
+  "overrides": {
+    "protobufjs": "^7.6.6",
+    "sharp": "^0.35.5",
+    "tinypool": "^2.2.0",
+    "glob": "^14.0.3",
+    "minimatch": "^11.0.4"
   }
 }
